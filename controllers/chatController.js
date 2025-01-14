@@ -71,85 +71,85 @@ if (lowerMessage.includes('clima') || lowerMessage.includes('tiempo') || lowerMe
   }
 }
 
-// // Lógica de vuelos
+// Lógica de vuelos
 
-// if (
-//   lowerMessage.includes('vuelo') || lowerMessage.includes('flight') ||
-//   lowerMessage.includes('pasaje') || lowerMessage.includes('ticket')
-// ) {
-//   // a) Detectar ciudades mencionadas en el mensaje
-//   let citiesFound = [];
-//   for (const city in authorizedCities) {
-//     if (lowerMessage.includes(city)) {
-//       citiesFound.push({ city, code: authorizedCities[city] });
-//     }
-//   }
+if (
+  lowerMessage.includes('vuelo') || lowerMessage.includes('flight') ||
+  lowerMessage.includes('pasaje') || lowerMessage.includes('ticket')
+) {
+  // a) Detectar ciudades mencionadas en el mensaje
+  let citiesFound = [];
+  for (const city in authorizedCities) {
+    if (lowerMessage.includes(city)) {
+      citiesFound.push({ city, code: authorizedCities[city] });
+    }
+  }
 
-//   // Validar que se detectaron al menos dos ciudades (origen y destino)
-//   if (citiesFound.length < 2) {
-//     externalInfo += (language === 'en')
-//       ? 'Please specify both origin and destination cities.'
-//       : 'Por favor indique tanto la ciudad de origen como la de destino.';
-//   } else {
-//     // Asumir que las dos primeras ciudades son origen y destino
-//     const originCity = citiesFound[0].city;
-//     const originCode = citiesFound[0].code;
-//     const destinationCity = citiesFound[1].city;
-//     const destinationCode = citiesFound[1].code;
+  // Validar que se detectaron al menos dos ciudades (origen y destino)
+  if (citiesFound.length < 2) {
+    externalInfo += (language === 'en')
+      ? 'Please specify both origin and destination cities.'
+      : 'Por favor indique tanto la ciudad de origen como la de destino.';
+  } else {
+    // Asumir que las dos primeras ciudades son origen y destino
+    const originCity = citiesFound[0].city;
+    const originCode = citiesFound[0].code;
+    const destinationCity = citiesFound[1].city;
+    const destinationCode = citiesFound[1].code;
 
-//     // b) Parsear la fecha de salida
-//     const departureDate = parseUserDate(userMessage);
+    // b) Parsear la fecha de salida
+    const departureDate = parseUserDate(userMessage);
 
-//     if (!departureDate) {
-//       externalInfo += (language === 'en')
-//         ? 'I did not detect a valid departure date. Please provide a date like "2025-01-10".'
-//         : 'No detecté una fecha de salida válida. Por favor proporciona una fecha como "10/01/2025".';
-//     } else {
-//       // Mapeo de códigos de aerolíneas a nombres completos
-//       const airlineNames = {
-//         'LA': 'LATAM Airlines',
-//         'AV': 'Avianca',
-//         'AC': 'Air Canada',
-//         'AA': 'American Airlines',
-//         'DL': 'Delta Air Lines',
-//         // Agrega más mapeos según sea necesario
-//       };
+    if (!departureDate) {
+      externalInfo += (language === 'en')
+        ? 'I did not detect a valid departure date. Please provide a date like "2025-01-10".'
+        : 'No detecté una fecha de salida válida. Por favor proporciona una fecha como "10/01/2025".';
+    } else {
+      // Mapeo de códigos de aerolíneas a nombres completos
+      const airlineNames = {
+        'LA': 'LATAM Airlines',
+        'AV': 'Avianca',
+        'AC': 'Air Canada',
+        'AA': 'American Airlines',
+        'DL': 'Delta Air Lines',
+        // Agrega más mapeos según sea necesario
+      };
 
-//       try {
-//         // Llamar a la función genérica de búsqueda de vuelos
-//         const flightData = await searchFlights(originCode, destinationCode, departureDate);
-//         if (flightData && flightData.length > 0) {
-//           let flightDetails = '';
-//           flightData.forEach((offer, index) => {
-//             const itinerary = offer.itineraries[0];
-//             const price = offer.price.total;
-//             const currency = offer.price.currency;
-//             const segments = itinerary.segments;
+      try {
+        // Llamar a la función genérica de búsqueda de vuelos
+        const flightData = await searchFlights(originCode, destinationCode, departureDate);
+        if (flightData && flightData.length > 0) {
+          let flightDetails = '';
+          flightData.forEach((offer, index) => {
+            const itinerary = offer.itineraries[0];
+            const price = offer.price.total;
+            const currency = offer.price.currency;
+            const segments = itinerary.segments;
 
-//             const airlineCode = segments[0]?.carrierCode;
-//             const airlineFullName = airlineNames[airlineCode] || airlineCode;
-//             const departureTime = segments[0]?.departure.at;
-//             const arrivalTime = segments[segments.length - 1]?.arrival.at;
+            const airlineCode = segments[0]?.carrierCode;
+            const airlineFullName = airlineNames[airlineCode] || airlineCode;
+            const departureTime = segments[0]?.departure.at;
+            const arrivalTime = segments[segments.length - 1]?.arrival.at;
 
-//             flightDetails += `\n${index + 1}. Airline: ${airlineFullName}, Price: ${price} ${currency}, Departure: ${departureTime}, Arrival: ${arrivalTime}`;
-//           });
-//           externalInfo += (language === 'en')
-//             ? `\nFlights found from ${originCity} to ${destinationCity}:\n${flightDetails}\n`
-//             : `\nVuelos encontrados desde ${originCity} hacia ${destinationCity}:\n${flightDetails}\n`;
-//         } else {
-//           externalInfo += (language === 'en')
-//             ? '\nNo flights found with the provided data.\n'
-//             : '\nNo se encontraron vuelos con los datos proporcionados.\n';
-//         }
-//       } catch (error) {
-//         console.error('Error fetching flights:', error);
-//         externalInfo += (language === 'en')
-//           ? '\nAn error occurred while searching for flights.\n'
-//           : '\nOcurrió un error al buscar vuelos.\n';
-//       }
-//     }
-//   }
-// }
+            flightDetails += `\n${index + 1}. Airline: ${airlineFullName}, Price: ${price} ${currency}, Departure: ${departureTime}, Arrival: ${arrivalTime}`;
+          });
+          externalInfo += (language === 'en')
+            ? `\nFlights found from ${originCity} to ${destinationCity}:\n${flightDetails}\n`
+            : `\nVuelos encontrados desde ${originCity} hacia ${destinationCity}:\n${flightDetails}\n`;
+        } else {
+          externalInfo += (language === 'en')
+            ? '\nNo flights found with the provided data.\n'
+            : '\nNo se encontraron vuelos con los datos proporcionados.\n';
+        }
+      } catch (error) {
+        console.error('Error fetching flights:', error);
+        externalInfo += (language === 'en')
+          ? '\nAn error occurred while searching for flights.\n'
+          : '\nOcurrió un error al buscar vuelos.\n';
+      }
+    }
+  }
+}
 
 // Hoteles, restaurantes, bares...
 if (
