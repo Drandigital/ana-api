@@ -21,6 +21,7 @@ export default function validateTourismQuery(userMessage) {
     'hola', 'buenos días', 'buen día', 'nombres', 'barrios', 'fiestas',
     'festivales', 'carnaval', 'mar', 'islas', 'guías', 'guía turístico',
     'seguro de viaje', 'transporte', 'pasaje', 'paquetes turísticos', 'nombre', 'barrios', 'premium', 'festivales', 'llamas', 'pareja', 
+    'como estas', 'como estas', 'buenos días', 'Hola', 'barrios', 'fiestas', 'festivales',
   
     // Inglés (equivalentes y adicionales)
     'colombia', 'tourism', 'travel', 'trip', 'trips', 'tour', 'tours',
