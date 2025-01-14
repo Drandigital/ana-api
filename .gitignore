@@ -1,0 +1,4 @@
+# Se ignoran los módulos de Node.js y las variables de entorno
+# para mantener el repositorio limpio y evitar exponer información confidencial.
+node_modules/
+.env
