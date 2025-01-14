@@ -74,8 +74,27 @@ if (lowerMessage.includes('clima') || lowerMessage.includes('tiempo') || lowerMe
 // Lógica de vuelos
 
 if (
-  lowerMessage.includes('vuelo') || lowerMessage.includes('flight') ||
-  lowerMessage.includes('pasaje') || lowerMessage.includes('ticket')
+  lowerMessage.includes('vuelo') || lowerMessage.includes('vuelos') ||
+  lowerMessage.includes('pasaje') || lowerMessage.includes('pasajes') ||
+  lowerMessage.includes('boleto') || lowerMessage.includes('boletos') ||
+  lowerMessage.includes('flight') || lowerMessage.includes('flights') ||
+  lowerMessage.includes('ticket') || lowerMessage.includes('tickets') ||
+  lowerMessage.includes('airline') || lowerMessage.includes('aerolínea') ||
+  lowerMessage.includes('airport') || lowerMessage.includes('airports') ||
+  lowerMessage.includes('embarque') || lowerMessage.includes('boarding') ||
+  lowerMessage.includes('departure') || lowerMessage.includes('arrival') ||
+  lowerMessage.includes('january') || lowerMessage.includes('february') ||
+  lowerMessage.includes('march') || lowerMessage.includes('april') ||
+  lowerMessage.includes('may') || lowerMessage.includes('june') ||
+  lowerMessage.includes('july') || lowerMessage.includes('august') ||
+  lowerMessage.includes('september') || lowerMessage.includes('october') ||
+  lowerMessage.includes('november') || lowerMessage.includes('december') ||
+  lowerMessage.includes('Enero') || lowerMessage.includes('Febrero') ||
+  lowerMessage.includes('Marzo') || lowerMessage.includes('Abril') ||
+  lowerMessage.includes('Mayo') || lowerMessage.includes('Junio') ||
+  lowerMessage.includes('julio') || lowerMessage.includes('Agosto') ||
+  lowerMessage.includes('Septiembre') || lowerMessage.includes('Octubre') ||
+  lowerMessage.includes('Noviembre') || lowerMessage.includes('Diciembre')
 ) {
   // a) Detectar ciudades mencionadas en el mensaje
   let citiesFound = [];
@@ -284,6 +303,7 @@ if (
     Your mission is to provide clear, concise, and helpful information about tourist destinations, culture, gastronomy, history, lodging, activities, and everything related to tourism in Colombia. 
     If a query is not related to tourism in Colombia, politely refuse to answer. 
     Aim to keep responses as brief as possible while still informative, using up to 200 words only when necessary for clarity or detail.
+    Identify the language in which they write to you and respond in the same language.
     `;
     
     const systemBaseEs = `
@@ -293,6 +313,7 @@ if (
     Tu misión es ofrecer información clara, concisa y útil sobre destinos turísticos, cultura, gastronomía, historia, hospedaje, actividades y todo lo relacionado con el turismo en Colombia.
     Si la consulta no está relacionada con turismo en Colombia, recházala educadamente.
     Procura que tus respuestas sean lo más breves posible sin perder la utilidad, usando hasta un máximo de 200 palabras solo cuando sea necesario para mayor claridad o detalle.
+    Identifica el idioma en el que te escriben  y responde en el mismo idioma.
     `;
     
 
