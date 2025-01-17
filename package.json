@@ -5,20 +5,20 @@
     "type": "module",
     "main": "app.js",
     "scripts": {
-      "start": "node app.js",
-      "dev": "nodemon app.js"
+        "start": "node app.js",
+        "dev": "nodemon app.js"
     },
     "dependencies": {
-      "amadeus": "^11.0.0",
-      "cors": "^2.8.5",
-      "dotenv": "^16.4.7",
-      "express": "^4.21.2",
-      "franc": "^6.2.0",
-      "openai": "^3.3.0",
-      "serverless-http": "^3.2.0"
+        "amadeus": "^11.0.0",
+        "cors": "^2.8.5",
+        "dotenv": "^16.4.7",
+        "express": "^4.21.2",
+        "franc": "^6.2.0",
+        "iso-639-3-to-1": "^1.0.0",
+        "openai": "^3.3.0",
+        "serverless-http": "^3.2.0"
     },
     "devDependencies": {
-      "nodemon": "^3.1.9"
+        "nodemon": "^3.1.9"
     }
-  }
-  
+}
