@@ -20,7 +20,7 @@ export async function handleChatRequest(req, res) {
       conversationHistory[sessionId] = [];
     }
 
-    // Validar si la consulta está relacionada con turismo
+    // Validar la consulta está relacionada con turismo
     const isTourism = validateTourismQuery(userMessage);
     if (!isTourism) {
       conversationHistory[sessionId].push({ role: 'user', content: userMessage });
