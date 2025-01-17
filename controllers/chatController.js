@@ -5,7 +5,7 @@ import { getWeatherData, getPlacesFromGoogleMaps, createReservation } from '../s
 import { searchFlights } from '../services/amadeusFlightService.js'; 
 import { parseUserDate } from '../utils/dateParser.js';
 import { authorizedCities } from '../config/airportCodes.js';
-import { detectLanguage } from '../utils/detectLanguage.js';
+
 
 // Historial en memoria (puedes exportarlo si lo necesitas en otro lugar)
 const conversationHistory = {};
@@ -14,7 +14,7 @@ export async function handleChatRequest(req, res) {
   try {
     const userMessage = req.body.message || '';
     const lowerMessage = userMessage.toLowerCase();
-    const language = detectLanguage(userMessage); // 'en' | 'es' | 'unknown'
+    const language = 'en'; 
     const sessionId = req.body.sessionId || 'default-session';
     if (!conversationHistory[sessionId]) {
       conversationHistory[sessionId] = [];
@@ -307,26 +307,10 @@ if (
     Aim to keep responses as brief as possible while still informative, using up to 200 words only when necessary for clarity or detail.
     Identify the language in which they write to you and respond in the same language.
     `;
-    
-    const systemBaseEs = `
-    Tú eres Ana, un chatbot especializado en turismo en Colombia. 
-    Siempre preséntate como “Ana”.
-    
-    Tu misión es ofrecer información clara, concisa y útil sobre destinos turísticos, cultura, gastronomía, historia, hospedaje, actividades y todo lo relacionado con el turismo en Colombia.
-    Estás estrictamente limitada a temas sobre turismo en Colombia.
-    Si la consulta no está relacionada con turismo en Colombia o pregunta sobre temas ajenos como matemáticas, ciencia, etc., recházala educadamente indicando que solo puedes responder sobre turismo en Colombia.
-    No proporciones información fuera de este ámbito.
-    Procura que tus respuestas sean lo más breves posible sin perder la utilidad, usando hasta un máximo de 200 palabras solo cuando sea necesario para mayor claridad o detalle.
-    Identifica el idioma en el que te escriben y responde en el mismo idioma.
-    `;
 
-    
-
-
-    const systemBase = (language === 'en') ? systemBaseEn : systemBaseEs;
-    const externalInfoText = (language === 'en')
-      ? `Additional info you can use:\n${externalInfo}`
-      : `Información adicional que puedes usar:\n${externalInfo}`;
+    // Se utiliza solo el prompt en inglés
+    const systemBase = systemBaseEn;
+    const externalInfoText = `Additional info you can use:\n${externalInfo}`;
 
     const systemMessage = {
       role: 'system',
@@ -334,8 +318,6 @@ if (
     };
 
     const fullHistory = conversationHistory[sessionId];
-    // (Si quieres limitar: const fullHistory = conversationHistory[sessionId].slice(-6);)
-
     const messagesForOpenAI = [
       systemMessage,
       ...fullHistory
@@ -352,5 +334,3 @@ if (
     });
   }
 }
-
-
