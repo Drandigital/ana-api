@@ -14,7 +14,6 @@ export async function handleChatRequest(req, res) {
   try {
     const userMessage = req.body.message || '';
     const lowerMessage = userMessage.toLowerCase();
-    const language = detectLanguage(userMessage); // 'en' | 'es' | 'unknown'
     const sessionId = req.body.sessionId || 'default-session';
     if (!conversationHistory[sessionId]) {
       conversationHistory[sessionId] = [];
