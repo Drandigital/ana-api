@@ -305,7 +305,7 @@ if (
     If a query is not related to tourism in Colombia, or asks about unrelated subjects such as mathematics, science, etc., politely refuse to answer by stating that you can only discuss tourism in Colombia.
     Do not provide any information outside this domain.
     Aim to keep responses as brief as possible while still informative, using up to 200 words only when necessary for clarity or detail.
-    Identify the language in which they write to you and respond in the same language, but by default it uses Spanish.
+    Identify the language in which they write to you and respond in the same language.
     `;
 
     // Se utiliza solo el prompt en inglés
