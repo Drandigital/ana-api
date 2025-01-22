@@ -326,7 +326,11 @@ if (
     const aiResponse = await getChatCompletion(messagesForOpenAI);
     conversationHistory[sessionId].push({ role: 'assistant', content: aiResponse });
 
-    return res.status(200).json({ response: aiResponse });
+    return res.status(200).json({ 
+      response: aiResponse,
+      places: conversationHistory[sessionId].mapPlaces || []
+
+     });
   } catch (error) {
     console.error("Error en la solicitud de chat:", error);
     return res.status(500).json({
