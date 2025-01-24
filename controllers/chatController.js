@@ -180,6 +180,10 @@ if (
   lowerMessage.includes('nightclub') ||
   lowerMessage.includes('bar') ||
   lowerMessage.includes('lugares') ||
+  lowerMessage.includes('places') ||
+  lowerMessage.includes('sitios') ||
+  lowerMessage.includes('monumentos') ||
+  lowerMessage.includes('monuments') ||
   lowerMessage.includes('bares') ||
   lowerMessage.includes('club')
 ) {
@@ -302,7 +306,7 @@ if (
     Always introduce yourself as "Ana".
     
     Your mission is to provide clear, concise, and helpful information about tourist destinations, culture, gastronomy, history, lodging, activities, and everything related to tourism in Colombia. 
-    You are strictly limited to topics about tourism in Colombia. 
+    You are strictly limited to topics about tourism in Colombia and its main cities such as Cartagena, Bogota, Medellin, Cali, Barranquilla, Bucaramanga, Santa Marta, Pereira, Manizales, Armenia, Cucuta, Villavicencio.
     If a query is not related to tourism in Colombia, or asks about unrelated subjects such as mathematics, science, etc., politely refuse to answer by stating that you can only discuss tourism in Colombia.
     Do not provide any information outside this domain.
     Aim to keep responses as brief as possible while still informative, using up to 200 words only when necessary for clarity or detail.
