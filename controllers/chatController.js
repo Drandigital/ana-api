@@ -179,6 +179,7 @@ if (
   lowerMessage.includes('discoteca') ||
   lowerMessage.includes('nightclub') ||
   lowerMessage.includes('bar') ||
+  lowerMessage.includes('lugares') ||
   lowerMessage.includes('bares') ||
   lowerMessage.includes('club')
 ) {
