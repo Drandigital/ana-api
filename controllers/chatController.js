@@ -179,18 +179,13 @@ if (
   lowerMessage.includes('discoteca') ||
   lowerMessage.includes('nightclub') ||
   lowerMessage.includes('bar') ||
-  lowerMessage.includes('lugares') ||
-  lowerMessage.includes('places') ||
-  lowerMessage.includes('sitios') ||
-  lowerMessage.includes('monumentos') ||
-  lowerMessage.includes('monuments') ||
   lowerMessage.includes('bares') ||
   lowerMessage.includes('club')
 ) {
   let placeType = 'hotel';
-  if (lowerMessage.includes('restaurante') || lowerMessage.includes('restaurant')) placeType = 'restaurant';
-  if (lowerMessage.includes('discoteca') || lowerMessage.includes('nightclub')) placeType = 'night_club';
-  if (lowerMessage.includes('bar') || lowerMessage.includes('bares')) placeType = 'bar';
+if (lowerMessage.includes('restaurante') || lowerMessage.includes('restaurant')) placeType = 'restaurant';
+if (lowerMessage.includes('discoteca') || lowerMessage.includes('nightclub')) placeType = 'night_club';
+if (lowerMessage.includes('bar') || lowerMessage.includes('bares')) placeType = 'bar';
 
   // Detectar ciudad para la búsqueda de lugares
   const cities = Object.keys(authorizedCities);
@@ -270,12 +265,17 @@ if (
       })
       .join('\n');
 
-    mapPlaces = places.slice(0, 4).map(place => ({
-      name: place.name || (language === 'en' ? 'No name' : 'Sin nombre'),
-      address: place.formatted_address || (language === 'en' ? 'Address not available' : 'Dirección no disponible'),
-      rating: place.rating || (language === 'en' ? 'No rating' : 'Sin calificación'),
-      location: place.geometry && place.geometry.location
-    }));
+      mapPlaces = places.slice(0, 4).map(place => ({
+        name: place.name || (language === 'en' ? 'No name' : 'Sin nombre'),
+        address: place.formatted_address || (language === 'en' ? 'Address not available' : 'Dirección no disponible'),
+        rating: place.rating || (language === 'en' ? 'No rating' : 'Sin calificación'),
+        location: {
+          lat: place.geometry?.location?.lat,
+          lng: place.geometry?.location?.lng
+        },
+        place_id: place.place_id,
+        photos: place.photos || []
+      }));
 
     externalInfo += language === 'en'
       ? `\nSome other options in ${cityForPlaces}:\n${topPlacesText}\n`
