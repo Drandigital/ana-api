@@ -17,33 +17,18 @@ export async function getPlacesFromGoogleMaps(city, placeType, language = 'en') 
       return null;
     }
     
-    // Map generic place types to more specific Google Places types
-    const placeTypeMap = {
-      'lugares': 'tourist_attraction',
-      'sitios': 'point_of_interest',
-      'places': 'tourist_attraction',
-      'monumentos': 'tourist_attraction',
-      'monuments': 'tourist_attraction',
-      // Add more mappings as needed
-      'hotel': 'lodging',
-      'restaurant': 'restaurant',
-      'bar': 'bar',
-      'night_club': 'night_club'
-    };
-
-    // Default to tourist attractions if no specific type is found
-    const mappedPlaceType = placeTypeMap[placeType.toLowerCase()] || 'tourist_attraction';
-    
-    const query = `${mappedPlaceType} in ${city}`;
+    const query = `${placeType} in ${city}`;
     const url = `https://maps.googleapis.com/maps/api/place/textsearch/json?query=${encodeURIComponent(query)}&language=${language}&key=${API_KEY}`;
     const response = await axios.get(url);
     return response.data.results; 
 
   } catch (error) {
     console.error("Error al obtener lugares de Google Maps:", error);
+    
     return null;
   }
 }
+
 
 
 /**
