@@ -11,7 +11,7 @@ import { handleChatRequest } from './controllers/chatController.js';
 const app = express();
 
 // Configurar CORS para permitir solicitudes desde múltiples orígenes
-const allowedOrigins = ['http://localhost:5173', 'https://frontend-ana.vercel.app' , 'https://frontend-ana-map-mkc3.vercel.app'];
+const allowedOrigins = ['http://localhost:5173', 'https://frontend-ana.vercel.app' , 'https://frontend-ana-map-mkc3.vercel.app', 'https://gooway-web.vercel.app'];
 
 app.use(cors({
   origin: function (origin, callback) {
