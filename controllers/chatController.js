@@ -1,345 +1,248 @@
 // controllers/chatController.js
 import validateTourismQuery from '../utils/validateTourismQuery.js';
 import { getChatCompletion } from '../services/openaiService.js';
-import { getWeatherData, getPlacesFromGoogleMaps, createReservation } from '../services/externalApiService.js';
-import { searchFlights } from '../services/amadeusFlightService.js'; 
-import { parseUserDate } from '../utils/dateParser.js';
-import { authorizedCities } from '../config/airportCodes.js';
+import { detectLanguage } from '../utils/detectLanguage.js';
+import { ApiError, asyncHandler } from '../middleware/errorHandler.js';
+import { 
+  findPremiumBusinesses, 
+  trackBusinessImpression,
+  trackBusinessClick 
+} from '../services/premiumBusinessService.js';
+import { analyzeQuery } from './queryAnalysisController.js';
+import { createSystemPrompt } from './promptController.js';
+import { gatherExternalInfo } from './externalInfoController.js';
+import { processTextForSpeech } from '../utils/speechProcessor.js';
 
+// In-memory conversation history store
+// In production, this should be replaced with a proper database
+export const conversationHistory = {};
 
-// Historial en memoria (puedes exportarlo si lo necesitas en otro lugar)
-const conversationHistory = {};
-
-export async function handleChatRequest(req, res) {
-  try {
-    const userMessage = req.body.message || '';
-    const lowerMessage = userMessage.toLowerCase();
-    const language = 'en'; 
-    const sessionId = req.body.sessionId || 'default-session';
-    if (!conversationHistory[sessionId]) {
-      conversationHistory[sessionId] = [];
-    }
-
-    // Validar la consulta está relacionada con turismo
-    const isTourism = validateTourismQuery(userMessage);
-    if (!isTourism) {
-      conversationHistory[sessionId].push({ role: 'user', content: userMessage });
-
-      let refusal;
-      if (language === 'en') {
-        refusal = "I'm sorry, I can only answer questions about tourism in Colombia.";
-      } else {
-        refusal = "Lo siento, solo respondo preguntas sobre turismo en Colombia.";
-      }
-
-      conversationHistory[sessionId].push({ role: 'assistant', content: refusal });
-      return res.status(200).json({ response: refusal });
-    }
-
-    conversationHistory[sessionId].push({ role: 'user', content: userMessage });
-
-    
-
-    // ----------------------------------------------------------------------------
-    // Lógica de "Información Externa": clima, vuelos, hoteles, reservas, etc.
-    // ----------------------------------------------------------------------------
-    let externalInfo = '';
-
-    // Clima
-if (lowerMessage.includes('clima') || lowerMessage.includes('tiempo') || lowerMessage.includes('weather')) {
-  // Lista de ciudades colombianas que queremos reconocer
-  const ciudades = ['cartagena', 'bogota', 'bogotá', 'medellin', 'medellín', 'cali', 'barranquilla', 'santa marta', 'bucaramanga', 'pereira', 'manizales', 'cúcuta', 'ibague', 'villavicencio', 'armenia', 'popayán', 'barrancabermeja', 'soacha'];
+/**
+ * Main chat request handler with async/await error handling
+ */
+export const handleChatRequest = asyncHandler(async (req, res) => {
+  // Extract request data
+  const userMessage = req.body.message || '';
+  const lowerMessage = userMessage.toLowerCase();
+  const language = req.body.language || detectLanguage(userMessage);
+  const sessionId = req.body.sessionId || 'default-session';
   
-  // Por defecto, usar Cartagena si no se detecta otra ciudad
-  let ciudadSeleccionada = 'Cartagena'; 
-
-  // Buscar en el mensaje alguna de las ciudades de la lista
-  for (const ciudad of ciudades) {
-    if (lowerMessage.includes(ciudad)) {
-      // Asignar la ciudad encontrada, capitalizar la primera letra si es necesario
-      ciudadSeleccionada = ciudad.charAt(0).toUpperCase() + ciudad.slice(1);
-      break;
-    }
-  }
-
-  // Obtener datos del clima para la ciudad detectada
-  const weather = await getWeatherData(ciudadSeleccionada);
-  if (weather) {
-    externalInfo += (language === 'en')
-      ? `Current weather in ${ciudadSeleccionada} is ${weather.temperature}°C with ${weather.description}. `
-      : `El clima actual en ${ciudadSeleccionada} es de ${weather.temperature}°C con ${weather.description}. `;
-  }
-}
-
-// Lógica de vuelos
-
-if (
-  lowerMessage.includes('vuelo') || lowerMessage.includes('vuelos') ||
-  lowerMessage.includes('pasaje') || lowerMessage.includes('pasajes') ||
-  lowerMessage.includes('boleto') || lowerMessage.includes('boletos') ||
-  lowerMessage.includes('flight') || lowerMessage.includes('flights') ||
-  lowerMessage.includes('ticket') || lowerMessage.includes('tickets') ||
-  lowerMessage.includes('airline') || lowerMessage.includes('aerolínea') ||
-  lowerMessage.includes('airport') || lowerMessage.includes('airports') ||
-  lowerMessage.includes('embarque') || lowerMessage.includes('boarding') ||
-  lowerMessage.includes('departure') || lowerMessage.includes('arrival') ||
-  lowerMessage.includes('january') || lowerMessage.includes('february') ||
-  lowerMessage.includes('march') || lowerMessage.includes('april') ||
-  lowerMessage.includes('may') || lowerMessage.includes('june') ||
-  lowerMessage.includes('july') || lowerMessage.includes('august') ||
-  lowerMessage.includes('september') || lowerMessage.includes('october') ||
-  lowerMessage.includes('november') || lowerMessage.includes('december') ||
-  lowerMessage.includes('Enero') || lowerMessage.includes('Febrero') ||
-  lowerMessage.includes('Marzo') || lowerMessage.includes('Abril') ||
-  lowerMessage.includes('Mayo') || lowerMessage.includes('Junio') ||
-  lowerMessage.includes('julio') || lowerMessage.includes('Agosto') ||
-  lowerMessage.includes('Septiembre') || lowerMessage.includes('Octubre') ||
-  lowerMessage.includes('Noviembre') || lowerMessage.includes('Diciembre')
-) {
-  // a) Detectar ciudades mencionadas en el mensaje
-  let citiesFound = [];
-  for (const city in authorizedCities) {
-    if (lowerMessage.includes(city)) {
-      citiesFound.push({ city, code: authorizedCities[city] });
-    }
-  }
-
-  // Validar que se detectaron al menos dos ciudades (origen y destino)
-  if (citiesFound.length < 2) {
-    externalInfo += (language === 'en')
-      ? 'Please specify both origin and destination cities.'
-      : 'Por favor indique tanto la ciudad de origen como la de destino.';
-  } else {
-    // Asumir que las dos primeras ciudades son origen y destino
-    const originCity = citiesFound[0].city;
-    const originCode = citiesFound[0].code;
-    const destinationCity = citiesFound[1].city;
-    const destinationCode = citiesFound[1].code;
-
-    // b) Parsear la fecha de salida
-    const departureDate = parseUserDate(userMessage);
-
-    if (!departureDate) {
-      externalInfo += (language === 'en')
-        ? 'I did not detect a valid departure date. Please provide a date like "2025-01-10".'
-        : 'No detecté una fecha de salida válida. Por favor proporciona una fecha como "10/01/2025".';
-    } else {
-      // Mapeo de códigos de aerolíneas a nombres completos
-      const airlineNames = {
-        'LA': 'LATAM Airlines',
-        'AV': 'Avianca',
-        'AC': 'Air Canada',
-        'AA': 'American Airlines',
-        'DL': 'Delta Air Lines',
-        // Agrega más mapeos según sea necesario
-      };
-
+  // Process and validate user location
+  let userLocation = req.body.location || null;
+  
+  if (userLocation) {
+    // Ensure location has proper format
+    if (typeof userLocation === 'string') {
       try {
-        // Llamar a la función genérica de búsqueda de vuelos
-        const flightData = await searchFlights(originCode, destinationCode, departureDate);
-        if (flightData && flightData.length > 0) {
-          let flightDetails = '';
-          flightData.forEach((offer, index) => {
-            const itinerary = offer.itineraries[0];
-            const price = offer.price.total;
-            const currency = offer.price.currency;
-            const segments = itinerary.segments;
-
-            const airlineCode = segments[0]?.carrierCode;
-            const airlineFullName = airlineNames[airlineCode] || airlineCode;
-            const departureTime = segments[0]?.departure.at;
-            const arrivalTime = segments[segments.length - 1]?.arrival.at;
-
-            flightDetails += `\n${index + 1}. Airline: ${airlineFullName}, Price: ${price} ${currency}, Departure: ${departureTime}, Arrival: ${arrivalTime}`;
-          });
-          externalInfo += (language === 'en')
-            ? `\nFlights found from ${originCity} to ${destinationCity}:\n${flightDetails}\n`
-            : `\nVuelos encontrados desde ${originCity} hacia ${destinationCity}:\n${flightDetails}\n`;
+        // Sometimes location might be sent as JSON string
+        userLocation = JSON.parse(userLocation);
+      } catch (e) {
+        console.error(`Could not parse location string: ${userLocation}`);
+        userLocation = null;
+      }
+    }
+    
+    // Validate location object
+    if (userLocation && typeof userLocation === 'object') {
+      if (typeof userLocation.lat !== 'undefined' && typeof userLocation.lng !== 'undefined') {
+        // Convert to numbers if string
+        if (typeof userLocation.lat === 'string') userLocation.lat = parseFloat(userLocation.lat);
+        if (typeof userLocation.lng === 'string') userLocation.lng = parseFloat(userLocation.lng);
+        
+        // Final validation
+        if (isNaN(userLocation.lat) || isNaN(userLocation.lng) || 
+            userLocation.lat < -90 || userLocation.lat > 90 || 
+            userLocation.lng < -180 || userLocation.lng > 180) {
+          console.error(`Invalid coordinates: ${JSON.stringify(userLocation)}`);
+          userLocation = null;
         } else {
-          externalInfo += (language === 'en')
-            ? '\nNo flights found with the provided data.\n'
-            : '\nNo se encontraron vuelos con los datos proporcionados.\n';
+          console.log(`Valid user location received: ${userLocation.lat}, ${userLocation.lng}`);
         }
-      } catch (error) {
-        console.error('Error fetching flights:', error);
-        externalInfo += (language === 'en')
-          ? '\nAn error occurred while searching for flights.\n'
-          : '\nOcurrió un error al buscar vuelos.\n';
+      } else {
+        console.error(`Missing lat/lng in location object: ${JSON.stringify(userLocation)}`);
+        userLocation = null;
       }
     }
   }
-}
-
-// Hoteles, restaurantes, bares...
-if (
-  lowerMessage.includes('hotel') ||
-  lowerMessage.includes('hotels') ||
-  lowerMessage.includes('restaurante') ||
-  lowerMessage.includes('restaurant') ||
-  lowerMessage.includes('discoteca') ||
-  lowerMessage.includes('nightclub') ||
-  lowerMessage.includes('bar') ||
-  lowerMessage.includes('bares') ||
-  lowerMessage.includes('club')
-) {
-  let placeType = 'hotel';
-if (lowerMessage.includes('restaurante') || lowerMessage.includes('restaurant')) placeType = 'restaurant';
-if (lowerMessage.includes('discoteca') || lowerMessage.includes('nightclub')) placeType = 'night_club';
-if (lowerMessage.includes('bar') || lowerMessage.includes('bares')) placeType = 'bar';
-
-  // Detectar ciudad para la búsqueda de lugares
-  const cities = Object.keys(authorizedCities);
-  let cityForPlaces = 'Cartagena'; // Valor por defecto
-  for (const city of cities) {
-    if (lowerMessage.includes(city)) {
-      cityForPlaces = city.charAt(0).toUpperCase() + city.slice(1);
-      break;
-    }
+  
+  console.log(`Received message: "${userMessage}" in ${language}`);
+  console.log(`User location:`, userLocation);
+  
+  // Initialize conversation history for this session if it doesn't exist
+  if (!conversationHistory[sessionId]) {
+    conversationHistory[sessionId] = [];
   }
+  
+  // Add user message to history
+  conversationHistory[sessionId].push({ role: 'user', content: userMessage });
 
-  // Definir ejemplos de negocios premium para varias ciudades y tipos
-  const premiumPartners = {
-    hotel: {
-      Cartagena: [
-        { name: "Hotel Premium One", address: "123 Premium St, Cartagena", rating: 4.8 },
-        { name: "Hotel Premium Two", address: "456 Luxury Ave, Cartagena", rating: 4.7 }
-      ],
-      Bogota: [
-        { name: "Hotel Bogota Luxury", address: "Avenida 123, Bogota", rating: 4.9 },
-        { name: "Hotel Capital Elite", address: "Calle 456, Bogota", rating: 4.8 }
-      ],
-      Medellin: [
-        { name: "Medellin Premium Inn", address: "Carrera 789, Medellin", rating: 4.6 },
-        { name: "Medellin Luxury Suites", address: "Calle 321, Medellin", rating: 4.7 }
-      ]
-      // Agrega más ciudades y hoteles según sea necesario
-    },
-    restaurant: {
-      Cartagena: [
-        { name: "Restaurant Premium A", address: "789 Gourmet Rd, Cartagena", rating: 4.9 },
-        { name: "Restaurant Premium B", address: "321 Fine Dine Ln, Cartagena", rating: 4.6 }
-      ],
-      Bogota: [
-        { name: "Bogota Fine Dine", address: "123 Gastronomy St, Bogota", rating: 4.8 },
-        { name: "Capital Eats Premium", address: "456 Chef Ave, Bogota", rating: 4.7 }
-      ],
-      Medellin: [
-        { name: "Medellin Gourmet Hub", address: "789 Food Plaza, Medellin", rating: 4.5 },
-        { name: "Savory Medellin", address: "321 Culinary Rd, Medellin", rating: 4.6 }
-      ]
-      // Agrega más ciudades y restaurantes según sea necesario
-    }
-    // Agrega otros tipos como 'bar', 'night_club', etc., si es necesario
-  };
-
-  // Obtener lista de negocios premium para la ciudad y tipo detectados
-  let partnerList = [];
-  if (premiumPartners[placeType] && premiumPartners[placeType][cityForPlaces]) {
-    partnerList = premiumPartners[placeType][cityForPlaces];
-  }
-
-  // Mostrar negocios premium primero
-  if (partnerList.length > 0) {
-    const partnerText = partnerList.map((place, idx) => {
-      return `${idx + 1}. ${place.name} (${place.address}), rating: ${place.rating}`;
-    }).join('\n');
-
-    externalInfo += language === 'en'
-      ? `\n Premium options in ${cityForPlaces}:\n${partnerText}\n`
-      : `\n Opciones premium en ${cityForPlaces}:\n${partnerText}\n`;
-  }
-
-  // Obtener lugares regulares en la ciudad detectada
-  const places = await getPlacesFromGoogleMaps(cityForPlaces, placeType);
-
-  let topPlacesText = '';
-  let mapPlaces = [];
-
-  if (places && places.length > 0) {
-    topPlacesText = places.slice(0, 4)
-      .map((place, idx) => {
-        const name = place.name || (language === 'en' ? 'No name' : 'Sin nombre');
-        const address = place.formatted_address || (language === 'en' ? 'Address not available' : 'Dirección no disponible');
-        const rating = place.rating || (language === 'en' ? 'No rating' : 'Sin calificación');
-        return `${idx + 1}. ${name} (${address}), rating: ${rating}`;
-      })
-      .join('\n');
-
-      mapPlaces = places.slice(0, 4).map(place => ({
-        name: place.name || (language === 'en' ? 'No name' : 'Sin nombre'),
-        address: place.formatted_address || (language === 'en' ? 'Address not available' : 'Dirección no disponible'),
-        rating: place.rating || (language === 'en' ? 'No rating' : 'Sin calificación'),
-        location: {
-          lat: place.geometry?.location?.lat,
-          lng: place.geometry?.location?.lng
-        },
-        place_id: place.place_id,
-        photos: place.photos || []
-      }));
-
-    externalInfo += language === 'en'
-      ? `\nSome other options in ${cityForPlaces}:\n${topPlacesText}\n`
-      : `\nAlgunas otras opciones en ${cityForPlaces}:\n${topPlacesText}\n`;
-  } else {
-    externalInfo += language === 'en'
-      ? '\nNo relevant places found.\n'
-      : '\nNo encontré lugares relevantes.\n';
-  }
-
-  conversationHistory[sessionId].mapPlaces = mapPlaces;
-}
-
-
+  // Validate if query is tourism-related
+  const isTourism = validateTourismQuery(userMessage);
+  if (!isTourism) {
+    const refusal = language === 'en'
+      ? "I'm sorry, I can only answer questions about tourism in Colombia."
+      : "Lo siento, solo respondo preguntas sobre turismo en Colombia.";
     
+    conversationHistory[sessionId].push({ role: 'assistant', content: refusal });
+    return res.status(200).json({ response: refusal });
+  }
 
-    // Reserva
-    if (lowerMessage.includes('reservar') || lowerMessage.includes('reserve')) {
-      const reservationResult = createReservation('fakePlaceId123', 'Usuario Demo', '2025-01-10', '2025-01-15');
-      externalInfo += `\n${reservationResult.message}\n`;
-    }
-
-    // ----------------------------------------------------------------------------
-    // Construimos los mensajes para OpenAI
-    // ----------------------------------------------------------------------------
-    const systemBaseEn = `
-    You are Ana, a chatbot specialized in tourism in Colombia. 
-    Always introduce yourself as "Ana".
+  try {
+    // Analyze query for detected category, city, and intent
+    const queryAnalysis = analyzeQuery(userMessage, lowerMessage, language);
+    console.log("Query analysis:", queryAnalysis);
     
-    Your mission is to provide clear, concise, and helpful information about tourist destinations, culture, gastronomy, history, lodging, activities, and everything related to tourism in Colombia. 
-    You are strictly limited to topics about tourism in Colombia and its main cities such as Cartagena, Bogota, Medellin, Cali, Barranquilla, Bucaramanga, Santa Marta, Pereira, Manizales, Armenia, Cucuta, Villavicencio.
-    If a query is not related to tourism in Colombia, or asks about unrelated subjects such as mathematics, science, etc., politely refuse to answer by stating that you can only discuss tourism in Colombia.
-    Do not provide any information outside this domain.
-    Aim to keep responses as brief as possible while still informative, using up to 200 words only when necessary for clarity or detail.
-    Identify the language in which they write to you and respond in the same language.
-    `;
+    // Get premium recommendations if applicable
+    let premiumRecommendations = null;
+    if (queryAnalysis.businessCategory) {
+      premiumRecommendations = findPremiumBusinesses(
+        queryAnalysis.businessCategory,
+        queryAnalysis.city,
+        userLocation
+      );
+      
+      // Track impressions for analytics
+      if (premiumRecommendations.length > 0) {
+        premiumRecommendations.forEach(business => {
+          trackBusinessImpression(business.id, sessionId);
+        });
+      }
+      
+      console.log(`Found ${premiumRecommendations.length} premium businesses`);
+    }
+    
+    // Process external information (weather, flights, places, etc.)
+    const externalInfo = await gatherExternalInfo(
+      userMessage, 
+      lowerMessage, 
+      language, 
+      sessionId,
+      userLocation,
+      premiumRecommendations,
+      queryAnalysis
+    );
+    
+    console.log("External info gathered for prompt");
 
-    // Se utiliza solo el prompt en inglés
-    const systemBase = systemBaseEn;
-    const externalInfoText = `Additional info you can use:\n${externalInfo}`;
-
-    const systemMessage = {
-      role: 'system',
-      content: `${systemBase}\n\n${externalInfoText}`
-    };
-
-    const fullHistory = conversationHistory[sessionId];
+    // Prepare the messages for OpenAI
+    const systemPrompt = createSystemPrompt(language, externalInfo, premiumRecommendations);
+    
     const messagesForOpenAI = [
-      systemMessage,
-      ...fullHistory
+      { role: 'system', content: systemPrompt },
+      ...conversationHistory[sessionId].slice(-10) // Only use last 10 messages to avoid token limits
     ];
 
+    // Get response from AI
     const aiResponse = await getChatCompletion(messagesForOpenAI);
+    
+    // Add AI response to conversation history
     conversationHistory[sessionId].push({ role: 'assistant', content: aiResponse });
 
+    // Get places data to return to frontend
+    const placesToReturn = [];
+    
+    // Add premium recommendations to places data
+    if (premiumRecommendations && premiumRecommendations.length > 0) {
+      premiumRecommendations.forEach(business => {
+        placesToReturn.push({
+          id: business.id,
+          name: business.name,
+          address: business.address,
+          description: business.description,
+          location: business.location,
+          rating: business.rating,
+          isPremium: business.priority === 1,
+          isVerified: true,
+          distance: business.distance,
+          distance_text: business.distance_text,
+          category: queryAnalysis.businessCategory,
+          phone: business.phone,
+          website: business.website,
+          images: business.images
+        });
+      });
+    }
+    
+    // Add Google Places data if available
+    if (conversationHistory[sessionId].mapPlaces) {
+      // Mark which places are from Google to differentiate from premium
+      conversationHistory[sessionId].mapPlaces.forEach(place => {
+        // Only add if not already in the list (avoid duplicates)
+        if (!placesToReturn.some(p => p.name === place.name)) {
+          placesToReturn.push({
+            ...place,
+            isPremium: false,
+            isVerified: false,
+            category: queryAnalysis.businessCategory
+          });
+        }
+      });
+    }
+
+    // Prepare and send response
     return res.status(200).json({ 
       response: aiResponse,
-      places: conversationHistory[sessionId].mapPlaces || []
-
-     });
+      places: placesToReturn,
+      sessionId,
+      businessCategory: queryAnalysis.businessCategory,
+      city: queryAnalysis.city
+    });
   } catch (error) {
-    console.error("Error en la solicitud de chat:", error);
-    return res.status(500).json({
-      error: "Ocurrió un error al procesar la solicitud."
+    console.error("Error processing chat request:", error);
+    const errorMessage = language === 'en'
+      ? "I'm sorry, I encountered an error while processing your request. Please try again."
+      : "Lo siento, encontré un error al procesar tu solicitud. Por favor, inténtalo de nuevo.";
+    
+    return res.status(500).json({ 
+      response: errorMessage,
+      error: error.message
     });
   }
-}
+});
+
+/**
+ * Handle click events on premium businesses for analytics tracking
+ */
+export const handleBusinessClick = asyncHandler(async (req, res) => {
+  const { businessId, sessionId } = req.body;
+  
+  if (!businessId || !sessionId) {
+    return res.status(400).json({
+      success: false,
+      message: 'BusinessId and sessionId are required'
+    });
+  }
+  
+  // Track the click in analytics
+  const success = trackBusinessClick(businessId, sessionId);
+  
+  return res.status(200).json({
+    success: true,
+    message: 'Business click tracked successfully'
+  });
+});
+
+/**
+ * Convert text to speech using browser's SpeechSynthesis API
+ * Note: This is handled on the frontend, this endpoint just returns the text
+ * to be spoken with appropriate parameters
+ */
+export const getTextToSpeech = asyncHandler(async (req, res) => {
+  const { text, language = 'es-CO' } = req.body;
+  
+  if (!text) {
+    return res.status(400).json({
+      success: false,
+      message: 'Text is required'
+    });
+  }
+  
+  // Process the text to make it more suitable for speech
+  const processedText = processTextForSpeech(text);
+  
+  return res.status(200).json({
+    success: true,
+    text: processedText,
+    language: language
+  });
+});

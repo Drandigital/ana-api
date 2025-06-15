@@ -36,7 +36,7 @@ async function handleChatRequest(req, res) {
     let externalInfo = '';
 
     // (A.1) Clima
-    if (lowerMessage.includes('clima') || lowerMessage.includes('tiempo')) {
+    if (lowerMessage.includes('clima') || lowerMessage.includes('tiempo') || lowerMessage.includes('temperatura')) {
       const weather = await getWeatherData('Cartagena');
       if (weather) {
         externalInfo = `El clima actual en Cartagena es de ${weather.temperature}°C con ${weather.description}.`;

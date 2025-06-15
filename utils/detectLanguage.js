@@ -1,47 +1,75 @@
-// utils/detectLanguage.js (CommonJS)
-import { franc } from 'franc';
+// utils/detectLanguage.js (ES Modules)
 
+/**
+ * Detects the language of a given text
+ * @param {string} text - The text to analyze
+ * @returns {string} - Language code ('en' or 'es')
+ */
 export function detectLanguage(text) {
-  const langCode = franc(text);
-
-  if (langCode === 'eng') return 'en';
-  if (langCode === 'spa') return 'es';
-
-  // Fallback manual con una lista ampliada de pistas en inglés
-  const lower = text.toLowerCase();
-  const englishHints = [
-    'tourism', 'travel', 'trip', 'trips', 'tour', 'tours',
-    'vacation', 'vacations', 'destination', 'destinations', 'experiences',
-    'culture', 'history', 'tourist places', 'holiday', 'holidays', 'visit',
-    'cartagena', 'bogota', 'medellin', 'barranquilla', 'cali', 'walled city',
-    'walls',
-    'beach', 'beaches', 'weather', 'forecast', 'landscape',
-    'hotel', 'hotels', 'hostel', 'reservation', 'book', 'booking', 'accommodation',
-    'restaurant', 'restaurants', 'typical food', 'gastronomy', 'bars', 'bar',
-    'clubs', 'nightclub', 'night life', 'nightlife',
-    'flight', 'flights', 'tickets', 'airline', 'airport', 'airports',
-    'boarding pass',
-    'activities', 'recommend', 'recommendation', 'advice', 'hello', 'hi',
-    'good morning', 'names', 'neighborhoods', 'parties', 'festivals',
-    'carnival', 'sea', 'islands', 'guides', 'tour guide', 'travel insurance',
-    'transportation', 'passage', 'tour packages', 'good day',
-    'please', 'thank you', 'goodbye', 'welcome', 'excuse me', 'sorry',
-    'can you', 'could you', 'would you', 'where is', 'how much', 'cheap',
-    'expensive', 'best', 'suggest', 'find', 'looking for',
-  
-    // Palabras y frases adicionales usadas comúnmente por turistas:
-    'show me', 'I need', 'guide me to', 'directions to', 'how can I get to',
-    'attraction', 'attractions', 'museum', 'museums', 'hours', 'open', 'close',
-    'schedule', 'prices', 'cost', 'pricing', 'ticket price', 'map', 'location',
-    'nearby', 'closest', 'near me', 'recommended', 'top', 'popular', 'famous'
-  ];
-  for (const word of englishHints) {
-    if (lower.includes(word)) {
-      console.log(`Detectado posible inglés por palabra clave: ${word}`);
-      return 'en';
-    }
+  if (!text || text.trim().length === 0) {
+    return 'es'; // Default to Spanish if no text
   }
 
-  console.log('Idioma predeterminado: español');
-  return 'es'; // Fallback final: español
+  try {
+    const lowerText = text.toLowerCase();
+    
+    // Check for English keywords
+    const englishKeywords = [
+      'the', 'what', 'where', 'when', 'how', 'why', 'who', 'which',
+      'can', 'could', 'would', 'will', 'should', 'might', 'must',
+      'and', 'but', 'or', 'because', 'if', 'although',
+      'hello', 'hi', 'hey', 'good morning', 'good afternoon', 'good evening',
+      'please', 'thank', 'thanks', 'welcome', 'sorry',
+      'tourism', 'travel', 'trip', 'visit', 'tour', 'hotel', 'restaurant',
+      'beach', 'flight', 'ticket', 'booking', 'reservation'
+    ];
+
+    // Count English keywords
+    let englishCount = 0;
+    for (const keyword of englishKeywords) {
+      if (lowerText.includes(` ${keyword} `) || 
+          lowerText.startsWith(`${keyword} `) || 
+          lowerText === keyword || 
+          lowerText.endsWith(` ${keyword}`)) {
+        englishCount++;
+      }
+    }
+
+    // Check for Spanish keywords
+    const spanishKeywords = [
+      'el', 'la', 'los', 'las', 'un', 'una', 'unos', 'unas',
+      'qué', 'dónde', 'cuándo', 'cómo', 'por qué', 'quién', 'cuál',
+      'puede', 'podría', 'debería', 'será', 'es', 'son', 'está', 'están',
+      'y', 'pero', 'o', 'porque', 'si', 'aunque',
+      'hola', 'buenos días', 'buenas tardes', 'buenas noches',
+      'por favor', 'gracias', 'bienvenido', 'lo siento', 'perdón',
+      'turismo', 'viaje', 'visita', 'tour', 'hotel', 'restaurante',
+      'playa', 'vuelo', 'boleto', 'reserva', 'reservación'
+    ];
+
+    // Count Spanish keywords
+    let spanishCount = 0;
+    for (const keyword of spanishKeywords) {
+      if (lowerText.includes(` ${keyword} `) || 
+          lowerText.startsWith(`${keyword} `) || 
+          lowerText === keyword || 
+          lowerText.endsWith(` ${keyword}`)) {
+        spanishCount++;
+      }
+    }
+
+    // Additional Spanish character detection
+    const spanishCharacters = ['á', 'é', 'í', 'ó', 'ú', 'ü', 'ñ', '¿', '¡'];
+    for (const char of spanishCharacters) {
+      if (lowerText.includes(char)) {
+        spanishCount += 2; // Give extra weight to Spanish-specific characters
+      }
+    }
+
+    // Compare counts and determine language
+    return englishCount > spanishCount ? 'en' : 'es';
+  } catch (error) {
+    console.error('Error detecting language:', error);
+    return 'es'; // Default to Spanish on error
+  }
 }
