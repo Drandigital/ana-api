@@ -1,6 +1,5 @@
 // app.js (ES Modules)
 import express from 'express';
-import cors from 'cors';
 import { 
   handleChatRequest, 
   getConversationState, 
@@ -17,19 +16,6 @@ import { handleProximityQuery } from './controllers/geolocationController.js';
 import { getReportsStats } from './controllers/reportController.js';
 
 const app = express();
-
-// Configure CORS with the allowed origins from config
-app.use(cors({
-  origin: function (origin, callback) {
-    if (!origin || config.server.allowedOrigins.includes(origin)) {
-      callback(null, true);
-    } else {
-      callback(new Error('Not allowed by CORS'));
-    }
-  },
-  methods: ['GET', 'POST'],
-  allowedHeaders: ['Content-Type', 'Authorization']
-}));
 
 // Middleware for parsing JSON bodies with size limit
 app.use(express.json({ limit: '1mb' }));
