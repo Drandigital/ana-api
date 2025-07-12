@@ -10,7 +10,7 @@ const config = {
     allowedOrigins: [
       'http://localhost:5173', 
       'https://frontend-ana.vercel.app', 
-      'https://frontend-ana-map-mkc3.vercel.app', 
+      'https://frontend-ana-map-puce.vercel.app/', 
       'https://www.gooway.co',
       'http://localhost:5174'
       
