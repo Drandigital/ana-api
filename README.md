@@ -1,10 +1,19 @@
 # Ana-IA: Colombia Tourism Chatbot API
 
-Ana-IA is an intelligent chatbot API specifically designed to provide information about tourism in Colombia. Leveraging OpenAI's language models, this API offers accurate and helpful responses to user queries about destinations, attractions, accommodations, flights, and more.
+Ana-IA is an intelligent chatbot API specifically designed to provide information about tourism in Colombia. Leveraging OpenAI's language models with **enhanced geolocation capabilities**, this API offers accurate and helpful responses to user queries about destinations, attractions, accommodations, flights, and more.
+
+## 🚀 New Features v1.2.0
+
+- **🎯 Intelligent Geolocation**: Advanced proximity-based searches with smart radius detection
+- **📍 Location-Aware Responses**: Automatic detection of "near me" queries with contextual recommendations
+- **🏆 Premium Business Integration**: Prioritized recommendations for verified partners
+- **⚡ Optimized Performance**: Enhanced caching and response times for location queries
+- **🌐 Smart City Detection**: Automatic city determination from coordinates
 
 ## Features
 
 - **Tourism Information**: Comprehensive knowledge about Colombian tourism destinations, attractions, culture, and history
+- **🎯 Enhanced Geolocation**: Precise proximity searches with intelligent radius calculation
 - **Multi-language Support**: Automatic language detection and responses in both English and Spanish
 - **Weather Data**: Real-time weather information for Colombian cities
 - **Flight Search**: Integration with Amadeus API for flight search capabilities
@@ -12,6 +21,84 @@ Ana-IA is an intelligent chatbot API specifically designed to provide informatio
 - **Priority System**: Premium content prioritization for sponsored locations and services
 - **Robust Error Handling**: Comprehensive error management with informative messages
 - **Caching System**: Performance optimization through intelligent caching of API responses
+
+## 🎯 Geolocation Features
+
+### Proximity Search
+Ana-IA now supports intelligent proximity-based searches that understand natural language queries like:
+- "Hoteles cerca de mí" / "Hotels near me"
+- "Restaurantes cercanos" / "Nearby restaurants"
+- "¿Qué hay para hacer aquí cerca?" / "What's there to do around here?"
+
+### Smart Radius Detection
+The API automatically determines optimal search radii based on:
+- **Place Type**: Hotels get wider search radius than cafés
+- **Urban Density**: Different radii for Bogotá vs. smaller cities
+- **Query Intent**: "Walking distance" vs. "in the city"
+
+### Location-Aware Features
+- **City Detection**: Automatically determines nearest Colombian city from coordinates
+- **Distance Calculation**: Precise Haversine distance calculations
+- **Premium Prioritization**: Premium businesses shown first, then sorted by distance
+- **Multi-source Results**: Combines Google Places data with premium partner listings
+
+### API Endpoints
+
+#### Enhanced Chat Endpoint
+```http
+POST /chat
+Content-Type: application/json
+
+{
+  "message": "Hoteles cerca de mi ubicación",
+  "location": {
+    "lat": 10.4236,
+    "lng": -75.5518
+  },
+  "language": "es",
+  "sessionId": "user-session-123"
+}
+```
+
+#### Dedicated Proximity Search
+```http
+POST /api/nearby
+Content-Type: application/json
+
+{
+  "location": {
+    "lat": 10.4236,
+    "lng": -75.5518
+  },
+  "placeType": "restaurant",
+  "language": "es",
+  "radius": 2000
+}
+```
+
+### Response Format
+```json
+{
+  "success": true,
+  "places": [
+    {
+      "name": "Hotel Boutique",
+      "location": {"lat": 10.423, "lng": -75.551},
+      "distance": 0.3,
+      "distance_text": "300m",
+      "rating": 4.7,
+      "isPremium": true,
+      "isVerified": true,
+      "formatted_address": "Calle 123 #45-67, Cartagena",
+      "source": "premium"
+    }
+  ],
+  "searchParams": {
+    "radius": 2000,
+    "resultsCount": 5
+  }
+}
+```
 
 ## Architecture
 
@@ -219,3 +306,56 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 - Integrates with Amadeus for real-time flight data
 - Weather data provided by OpenWeatherMap
 - Places information powered by Google Maps Platform
+
+## 🧪 Testing Geolocation Features
+
+### Quick Test Script
+Run the included test script to verify geolocation functionality:
+
+```bash
+# Install dependencies if not already installed
+npm install
+
+# Run the geolocation test suite
+node test-geolocation.js
+```
+
+### Manual Testing Examples
+
+#### Test proximity search in Cartagena:
+```bash
+curl -X POST http://localhost:3000/api/nearby \
+  -H "Content-Type: application/json" \
+  -d '{
+    "location": {"lat": 10.4236, "lng": -75.5518},
+    "placeType": "restaurant",
+    "language": "es",
+    "radius": 1500
+  }'
+```
+
+#### Test chat with location:
+```bash
+curl -X POST http://localhost:3000/chat \
+  -H "Content-Type: application/json" \
+  -d '{
+    "message": "Necesito un hotel cerca de aquí",
+    "location": {"lat": 10.4236, "lng": -75.5518},
+    "language": "es"
+  }'
+```
+
+### Supported Place Types
+- `hotel`, `lodging` - Hotels and accommodations
+- `restaurant`, `food` - Restaurants and dining
+- `bar`, `pub` - Bars and nightlife
+- `museum` - Museums and galleries
+- `attraction`, `tourist_attraction` - Tourist attractions
+- `beach`, `playa` - Beaches and coastal areas
+- `park`, `parque` - Parks and recreational areas
+
+### Location Validation
+- Coordinates must be within Colombia (approximately)
+- Latitude: 12°N to -4°S
+- Longitude: -66°W to -82°W
+- Invalid coordinates return helpful error messages
