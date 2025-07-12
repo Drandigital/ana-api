@@ -2,9 +2,8 @@
 import axios from 'axios';
 import config from '../config/index.js';
 import { ApiError } from '../middleware/errorHandler.js';
-
-// Se reemplazará con el servicio de caché mejorado
 import cacheService from './cacheService.js';
+import geolocationService from './geolocationService.js';
 
 /**
  * Gets weather data for a specified city
@@ -12,7 +11,17 @@ import cacheService from './cacheService.js';
  * @returns {Promise<Object|null>} Weather data object or null on error
  */
 export async function getWeatherData(city) {
-  const cacheKey = `weather:${city.toLowerCase()}`;
+  // Ensure city is a string
+  if (!city || typeof city !== 'string') {
+    throw new ApiError('City name must be a valid string', 400);
+  }
+  
+  const cityStr = city.trim();
+  if (!cityStr) {
+    throw new ApiError('City name cannot be empty', 400);
+  }
+  
+  const cacheKey = `weather:${cityStr.toLowerCase()}`;
   
   return cacheService.getCachedData(
     cacheKey,
@@ -23,7 +32,7 @@ export async function getWeatherData(city) {
           throw new ApiError('Weather API key not configured', 500);
         }
         
-        const url = `https://api.openweathermap.org/data/2.5/weather?q=${city}&appid=${API_KEY}&units=metric`;
+        const url = `https://api.openweathermap.org/data/2.5/weather?q=${cityStr}&appid=${API_KEY}&units=metric`;
         const response = await axios.get(url);
         
         return {
@@ -39,7 +48,7 @@ export async function getWeatherData(city) {
         if (error instanceof ApiError) throw error;
         
         if (error.response && error.response.status === 404) {
-          throw new ApiError(`City '${city}' not found`, 404);
+          throw new ApiError(`City '${cityStr}' not found`, 404);
         }
         
         throw new ApiError('Failed to fetch weather data', 500);
@@ -57,10 +66,10 @@ export async function getWeatherData(city) {
  * @param {string} language - Response language
  * @param {Object} userLocation - User's location coordinates
  * @param {string} sortBy - Sorting criteria ('proximity' or 'rating')
- * @param {number} radius - Search radius in meters (default: 5000)
+ * @param {number} radius - Search radius in meters (default: intelligent radius)
  * @returns {Promise<Array|null>} - List of places or null on error
  */
-export async function getPlacesFromGoogleMaps(city, placeType = 'tourist_attraction', language = 'en', userLocation = null, sortBy = 'rating', radius = 5000) {
+export async function getPlacesFromGoogleMaps(city, placeType = 'tourist_attraction', language = 'en', userLocation = null, sortBy = 'rating', radius = null) {
   // Mapeo más exhaustivo de tipos de lugares a tipos específicos de Google Places
   const placeTypeMap = {
     // Hoteles y alojamiento
@@ -153,47 +162,44 @@ export async function getPlacesFromGoogleMaps(city, placeType = 'tourist_attract
   const normalizedPlaceType = placeType.toLowerCase().trim();
   const normalizedCity = city.toLowerCase().trim();
   
-  // Usar mapeo de tipos o valor por defecto según la categoría
-  const mappedPlaceType = placeTypeMap[normalizedPlaceType] || 'tourist_attraction';
+  // Usar mapeo de tipos o mantener el tipo original si ya es un tipo válido de Google Places
+  const validGoogleTypes = ['lodging', 'restaurant', 'tourist_attraction', 'bank', 'pharmacy', 'gas_station', 'store', 'bar', 'night_club', 'museum', 'art_gallery', 'park', 'natural_feature', 'cafe'];
+  const mappedPlaceType = placeTypeMap[normalizedPlaceType] || (validGoogleTypes.includes(normalizedPlaceType) ? normalizedPlaceType : 'tourist_attraction');
   
-  // Validar datos de ubicación del usuario
-  const hasValidLocation = userLocation && 
-                          typeof userLocation.lat !== 'undefined' && 
-                          typeof userLocation.lng !== 'undefined' &&
-                          !isNaN(userLocation.lat) && 
-                          !isNaN(userLocation.lng);
+  // Validar y normalizar ubicación del usuario
+  const validatedLocation = geolocationService.validateAndNormalizeUserLocation(userLocation);
+  const hasValidLocation = validatedLocation !== null;
   
-  // Determinar radio de búsqueda según tipo de ordenamiento
-  let searchRadius = radius;
-  if (sortBy === 'proximity' && hasValidLocation) {
-    // Para búsquedas por proximidad, usar un radio más pequeño
-    searchRadius = Math.min(radius, 5000); // Máximo 5km para búsquedas por proximidad
-  } else {
-    // Para búsquedas por calificación, usar un radio más amplio
-    searchRadius = Math.max(radius, 10000); // Mínimo 10km para búsquedas por calificación
+  // Determinar radio de búsqueda inteligente
+  const searchRadius = radius || geolocationService.getIntelligentSearchRadius(
+    mappedPlaceType, 
+    normalizedCity, 
+    sortBy === 'proximity' ? 'proximity' : 'general'
+  );
+  
+  console.log(`🔍 Búsqueda configurada: tipo=${mappedPlaceType}, ciudad=${normalizedCity}, radio=${searchRadius}m, ordenar por=${sortBy}`);
+  if (hasValidLocation) {
+    console.log(`📍 Ubicación usuario: ${validatedLocation.lat}, ${validatedLocation.lng}`);
   }
   
-  // Crear clave de caché apropiada
-  let cacheKey;
-  if (hasValidLocation && sortBy === 'proximity') {
-    // Para búsquedas por proximidad, la ubicación es parte clave del caché
-    const lat = Math.round(userLocation.lat * 1000) / 1000; // Aproximar a 3 decimales (~110m)
-    const lng = Math.round(userLocation.lng * 1000) / 1000;
-    cacheKey = `places:proximity:${lat},${lng}:${mappedPlaceType}:${language}:${searchRadius}`;
-  } else {
-    // Para búsquedas por calificación, la ciudad es clave
-    cacheKey = `places:rating:${normalizedCity}:${mappedPlaceType}:${language}`;
-  }
+  // Crear clave de caché optimizada
+  const cacheKey = geolocationService.createGeoCacheKey(
+    validatedLocation,
+    mappedPlaceType,
+    normalizedCity,
+    searchRadius,
+    sortBy
+  );
   
-  console.log(`Cache key: ${cacheKey}`);
+  console.log(`💾 Cache key: ${cacheKey}`);
   
-  // TTL depende del tipo de lugar - hoteles se cachean por más tiempo
-  const ttl = (mappedPlaceType === 'lodging') 
+  // TTL depende del tipo de lugar y la búsqueda
+  const baseTtl = (mappedPlaceType === 'lodging') 
     ? config.cache.placesHotelsTtl 
     : config.cache.placesTourismTtl;
   
-  // Para búsquedas basadas en ubicación, usar TTL más corto
-  const effectiveTtl = (hasValidLocation && sortBy === 'proximity') ? Math.min(ttl, 1800) : ttl;
+  // Para búsquedas basadas en ubicación, usar TTL más corto para datos más frescos
+  const effectiveTtl = (hasValidLocation && sortBy === 'proximity') ? Math.min(baseTtl, 1800) : baseTtl;
   
   return cacheService.getCachedData(
     cacheKey,
@@ -211,8 +217,8 @@ export async function getPlacesFromGoogleMaps(city, placeType = 'tourist_attract
         if (hasValidLocation && sortBy === 'proximity') {
           // Usar nearbysearch para búsquedas por proximidad
           searchType = 'nearby';
-          url = `https://maps.googleapis.com/maps/api/place/nearbysearch/json?location=${userLocation.lat},${userLocation.lng}&radius=${searchRadius}&type=${mappedPlaceType}&language=${language}&key=${API_KEY}`;
-          console.log(`Búsqueda por proximidad desde ${userLocation.lat},${userLocation.lng} con radio ${searchRadius}m`);
+          url = `https://maps.googleapis.com/maps/api/place/nearbysearch/json?location=${validatedLocation.lat},${validatedLocation.lng}&radius=${searchRadius}&type=${mappedPlaceType}&language=${language}&key=${API_KEY}`;
+          console.log(`🎯 Búsqueda por proximidad desde ${validatedLocation.lat},${validatedLocation.lng} con radio ${searchRadius}m`);
         } else {
           // Usar textsearch para búsquedas por ciudad y calificación
           searchType = 'text';
@@ -222,21 +228,21 @@ export async function getPlacesFromGoogleMaps(city, placeType = 'tourist_attract
           query = `${typeLabel} in ${city}`;
           
           url = `https://maps.googleapis.com/maps/api/place/textsearch/json?query=${encodeURIComponent(query)}&type=${mappedPlaceType}&language=${language}&key=${API_KEY}`;
-          console.log(`Búsqueda por texto: "${query}", con tipo explícito: ${mappedPlaceType}`);
+          console.log(`🔍 Búsqueda por texto: "${query}", con tipo explícito: ${mappedPlaceType}`);
         }
         
         // Hacer la solicitud a la API
-        console.log(`Solicitud a Google Places API (${searchType}Search)...`);
+        console.log(`📡 Solicitud a Google Places API (${searchType}Search)...`);
         const response = await axios.get(url);
         
         // Validar respuesta
         if (response.data.status !== 'OK') {
-          console.error(`Error de Google Places API: ${response.data.status}`);
+          console.error(`❌ Error de Google Places API: ${response.data.status}`);
           throw new ApiError(`Error de Google Places API: ${response.data.status}`, 500);
         }
         
         const placesCount = response.data.results.length;
-        console.log(`Recibidos ${placesCount} lugares de Google API`);
+        console.log(`✅ Recibidos ${placesCount} lugares de Google API`);
         
         if (placesCount === 0) {
           return [];
@@ -247,7 +253,7 @@ export async function getPlacesFromGoogleMaps(city, placeType = 'tourist_attract
         
         if (hasValidLocation && sortBy === 'proximity' && normalizedCity) {
           // Para búsquedas por proximidad, filtrar para asegurar que estén en la ciudad solicitada
-          console.log(`Filtrando resultados para asegurar que están en ${normalizedCity}`);
+          console.log(`🔍 Filtrando resultados para asegurar que están en ${normalizedCity}`);
           
           const filteredResults = results.filter(place => {
             const placeAddress = (place.formatted_address || place.vicinity || '').toLowerCase();
@@ -256,10 +262,10 @@ export async function getPlacesFromGoogleMaps(city, placeType = 'tourist_attract
           
           // Si después de filtrar quedan muy pocos resultados, verificar si vale la pena
           if (filteredResults.length < 3 && results.length > 5) {
-            console.log(`Muy pocos resultados después de filtrar (${filteredResults.length}). Manteniendo los originales.`);
+            console.log(`⚠️ Muy pocos resultados después de filtrar (${filteredResults.length}). Manteniendo los originales.`);
           } else {
             results = filteredResults;
-            console.log(`Resultados filtrados por ciudad: ${results.length}`);
+            console.log(`✅ Resultados filtrados por ciudad: ${results.length}`);
           }
         }
         
@@ -271,10 +277,10 @@ export async function getPlacesFromGoogleMaps(city, placeType = 'tourist_attract
           return place.types.some(type => compatibleTypes.includes(type));
         });
         
-        console.log(`Resultados filtrados por tipo: ${results.length} del tipo ${mappedPlaceType}`);
+        console.log(`🎯 Resultados filtrados por tipo: ${results.length} del tipo ${mappedPlaceType}`);
         
         // Procesar los resultados con prioridad, distancias, etc.
-        const processedResults = processPlacesResults(results, userLocation, normalizedCity, sortBy);
+        const processedResults = processPlacesResults(results, validatedLocation, normalizedCity, sortBy);
         return processedResults;
       } catch (error) {
         console.error("Error obteniendo lugares de Google Maps:", error);
@@ -288,9 +294,106 @@ export async function getPlacesFromGoogleMaps(city, placeType = 'tourist_attract
 }
 
 /**
- * Procesa y mejora los datos de lugares de la API de Google
+ * Búsqueda georreferenciada inteligente que combina datos de Google Places y negocios premium
+ * @param {Object} userLocation - Coordenadas del usuario {lat, lng}
+ * @param {string} placeType - Tipo de lugar a buscar
+ * @param {string} language - Idioma de respuesta
+ * @param {number} radius - Radio de búsqueda en metros
+ * @param {number} limit - Límite de resultados
+ * @returns {Promise<Array>} - Lista combinada de lugares cercanos
+ */
+export async function getPlacesNearUser(userLocation, placeType = 'restaurant', language = 'es', radius = 3000, limit = 15) {
+  // Validar ubicación del usuario
+  const validatedLocation = geolocationService.validateAndNormalizeUserLocation(userLocation);
+  
+  if (!validatedLocation) {
+    throw new ApiError('Ubicación del usuario no válida', 400);
+  }
+  
+  console.log(`🎯 Búsqueda georreferenciada: tipo=${placeType}, radio=${radius}m, límite=${limit}`);
+  
+  // Determinar la ciudad más cercana
+  const nearestCityData = geolocationService.getNearestCity(validatedLocation.lat, validatedLocation.lng);
+  
+  if (!nearestCityData) {
+    console.log('❌ No se pudo determinar la ciudad más cercana');
+    throw new ApiError('No se pudo determinar la ubicación dentro de Colombia', 400);
+  }
+  
+  const nearestCity = nearestCityData.name;
+  console.log(`📍 Ciudad determinada: ${nearestCity} (${nearestCityData.department})`);
+  
+  // Buscar en Google Places con radio inteligente
+  const googlePlaces = await getPlacesFromGoogleMaps(
+    nearestCity,
+    placeType,
+    language,
+    validatedLocation,
+    'proximity',
+    radius
+  );
+  
+  // Buscar negocios premium cercanos (importar función desde premiumBusinessService)
+  const { findNearbyPremiumBusinesses } = await import('./premiumBusinessService.js');
+  const premiumPlaces = findNearbyPremiumBusinesses(
+    validatedLocation,
+    placeType,
+    radius / 1000, // Convertir a km
+    Math.ceil(limit / 3) // Reservar 1/3 para premium
+  );
+  
+  // Combinar resultados
+  let combinedResults = [];
+  
+  // Agregar lugares premium primero
+  premiumPlaces.forEach(place => {
+    combinedResults.push({
+      ...place,
+      source: 'premium',
+      isPremium: true,
+      isVerified: true
+    });
+  });
+  
+  // Agregar lugares de Google, evitando duplicados por nombre
+  const existingNames = new Set(combinedResults.map(p => p.name.toLowerCase()));
+  
+  googlePlaces.forEach(place => {
+    const placeName = place.name.toLowerCase();
+    if (!existingNames.has(placeName)) {
+      combinedResults.push({
+        ...place,
+        source: 'google',
+        isPremium: false,
+        isVerified: place.isVerified || false
+      });
+      existingNames.add(placeName);
+    }
+  });
+  
+  // Ordenar por prioridad y distancia con límite estricto de 5km
+  combinedResults = geolocationService.sortPlacesByProximity(combinedResults, validatedLocation, 5); // Máximo 5km
+  
+  // Aplicar límite final estricto
+  const finalResults = combinedResults.slice(0, limit);
+  
+  console.log(`✅ Búsqueda completada: ${finalResults.length} lugares encontrados (${premiumPlaces.length} premium, ${finalResults.length - premiumPlaces.length} Google)`);
+  console.log(`📏 Todos los resultados están dentro de 5km y ordenados por proximidad`);
+
+  // Agregar metadatos de distancia formateada a cada lugar
+  finalResults.forEach(place => {
+    if (!place.distance_formatted && place.distance) {
+      place.distance_formatted = geolocationService.formatDistance(place.distance, language);
+    }
+  });
+  
+  return finalResults;
+}
+
+/**
+ * Procesa y mejora los datos de lugares de la API de Google con geolocalización optimizada
  * @param {Array} places - Datos crudos de lugares de la API de Google
- * @param {Object} userLocation - Coordenadas de ubicación del usuario
+ * @param {Object} userLocation - Coordenadas validadas de ubicación del usuario
  * @param {string} city - Ciudad para filtrado
  * @param {string} sortBy - Criterio de ordenación ('proximity' o 'rating')
  * @returns {Array} - Datos de lugares mejorados
@@ -301,32 +404,13 @@ function processPlacesResults(places, userLocation, city, sortBy = 'rating') {
     return [];
   }
   
+  console.log(`🔧 Procesando ${places.length} lugares...`);
+  
   // Normalizar la ciudad para comparación
   const normalizedCity = city ? city.toLowerCase().trim() : null;
   
-  // Validar ubicación del usuario para cálculos de distancia
-  const hasValidLocation = userLocation && 
-                         typeof userLocation.lat !== 'undefined' && 
-                         typeof userLocation.lng !== 'undefined' &&
-                         !isNaN(userLocation.lat) && 
-                         !isNaN(userLocation.lng);
-  
-  // Filtrar por ciudad si se especificó
-  let results = places;
-  
-  if (normalizedCity) {
-    // Filtrar lugares por ciudad
-    results = results.filter(place => {
-      // Verificar si la dirección contiene el nombre de la ciudad
-      const address = (place.formatted_address || place.vicinity || '').toLowerCase();
-      return address.includes(normalizedCity);
-    });
-    
-    console.log(`Filtrados a ${results.length} lugares en ${city}`);
-  }
-  
-  // Agregar banderas de prioridad y calcular distancias
-  results = results.map(place => {
+  // Procesar lugares y agregar metadatos
+  let results = places.map(place => {
     // Copiar el objeto place para evitar modificar el original
     const enhancedPlace = { ...place };
     
@@ -341,22 +425,6 @@ function processPlacesResults(places, userLocation, city, sortBy = 'rating') {
       config.prioritySystem.levels.premium : 
       config.prioritySystem.levels.normal;
     
-    // Calcular distancia si tenemos ubicación del usuario válida y coordenadas del lugar
-    if (hasValidLocation && 
-        place.geometry && 
-        place.geometry.location) {
-      
-      const distance = calculateDistance(
-        userLocation.lat,
-        userLocation.lng,
-        place.geometry.location.lat,
-        place.geometry.location.lng
-      );
-      
-      enhancedPlace.distance = distance;
-      enhancedPlace.distance_text = formatDistance(distance);
-    }
-    
     // Extraer datos relevantes para el frontend
     enhancedPlace.place_id = place.place_id;
     enhancedPlace.name = place.name || 'Sin nombre';
@@ -370,27 +438,67 @@ function processPlacesResults(places, userLocation, city, sortBy = 'rating') {
     return enhancedPlace;
   });
   
-  // Agrupar por nivel de prioridad
-  const premiumPlaces = results.filter(place => place.priority === config.prioritySystem.levels.premium);
-  const normalPlaces = results.filter(place => place.priority !== config.prioritySystem.levels.premium);
-  
-  // Ordenar según criterio especificado
-  if (sortBy === 'proximity' && hasValidLocation) {
-    // Ordenar cada grupo por distancia
-    premiumPlaces.sort((a, b) => (a.distance || Infinity) - (b.distance || Infinity));
-    normalPlaces.sort((a, b) => (a.distance || Infinity) - (b.distance || Infinity));
+  // Filtrar por ciudad si se especificó y no es una búsqueda por proximidad
+  if (normalizedCity && sortBy !== 'proximity') {
+    const initialCount = results.length;
+    results = results.filter(place => {
+      // Verificar si la dirección contiene el nombre de la ciudad
+      const address = (place.formatted_address || place.vicinity || '').toLowerCase();
+      return address.includes(normalizedCity);
+    });
     
-    console.log(`Lugares ordenados por proximidad dentro de cada nivel de prioridad`);
+    console.log(`🏙️ Filtrados por ciudad de ${initialCount} a ${results.length} lugares`);
+  }
+  
+  // Procesar con geolocalización si tenemos ubicación del usuario
+  if (userLocation) {
+    console.log(`📏 Calculando distancias desde: ${userLocation.lat}, ${userLocation.lng}`);
+    
+    results = results.map(place => {
+      if (!place.location || !place.location.lat || !place.location.lng) {
+        return {
+          ...place,
+          distance: Infinity,
+          distance_text: 'Sin ubicación'
+        };
+      }
+      
+      const distance = geolocationService.calculateDistance(
+        userLocation.lat,
+        userLocation.lng,
+        place.location.lat,
+        place.location.lng
+      );
+      
+      return {
+        ...place,
+        distance: distance || Infinity,
+        distance_text: geolocationService.formatDistance(distance, 'es')
+      };
+    });
+  }
+  
+  // Ordenar según criterio especificado usando el servicio de geolocalización
+  if (sortBy === 'proximity' && userLocation) {
+    // Usar el servicio de geolocalización para ordenar por proximidad
+    results = geolocationService.sortPlacesByProximity(results, userLocation);
+    console.log(`🎯 Lugares ordenados por proximidad`);
   } else {
+    // Agrupar por nivel de prioridad y ordenar cada grupo
+    const premiumPlaces = results.filter(place => place.priority === config.prioritySystem.levels.premium);
+    const normalPlaces = results.filter(place => place.priority !== config.prioritySystem.levels.premium);
+    
     // Ordenar por calificación (mayor primero)
     premiumPlaces.sort((a, b) => (b.rating || 0) - (a.rating || 0));
     normalPlaces.sort((a, b) => (b.rating || 0) - (a.rating || 0));
     
-    console.log(`Lugares ordenados por calificación dentro de cada nivel de prioridad`);
+    // Combinar los grupos
+    results = [...premiumPlaces, ...normalPlaces];
+    console.log(`⭐ Lugares ordenados por calificación dentro de cada nivel de prioridad`);
   }
   
-  // Combinar los grupos
-  return [...premiumPlaces, ...normalPlaces];
+  console.log(`✅ Procesamiento completado: ${results.length} lugares`);
+  return results;
 }
 
 /**
@@ -407,61 +515,6 @@ function isPremiumPartner(placeId) {
   ];
   
   return premiumPartnerIds.includes(placeId);
-}
-
-/**
- * Calcula la distancia entre dos puntos usando la fórmula de Haversine
- * @param {number} lat1 - Latitud del punto 1
- * @param {number} lon1 - Longitud del punto 1
- * @param {number} lat2 - Latitud del punto 2
- * @param {number} lon2 - Longitud del punto 2
- * @returns {number} - Distancia en kilómetros
- */
-function calculateDistance(lat1, lon1, lat2, lon2) {
-  const R = 6371; // Radio de la Tierra en km
-  const dLat = degreesToRadians(lat2 - lat1);
-  const dLon = degreesToRadians(lon2 - lon1);
-  
-  const a = 
-    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-    Math.cos(degreesToRadians(lat1)) * Math.cos(degreesToRadians(lat2)) * 
-    Math.sin(dLon / 2) * Math.sin(dLon / 2);
-  
-  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-  const distance = R * c; // Distancia en km
-  
-  return distance;
-}
-
-/**
- * Convierte grados a radianes
- * @param {number} degrees - Ángulo en grados
- * @returns {number} - Ángulo en radianes
- */
-function degreesToRadians(degrees) {
-  return degrees * (Math.PI / 180);
-}
-
-/**
- * Formatea la distancia para mostrar
- * @param {number} distance - Distancia en kilómetros
- * @returns {string} - Cadena de distancia formateada
- */
-function formatDistance(distance) {
-  if (distance === undefined || distance === null) {
-    return null;
-  }
-  
-  if (distance < 1) {
-    // Convertir a metros para distancias menores a 1km
-    return `${Math.round(distance * 1000)}m`;
-  } else if (distance < 10) {
-    // Hasta 10km, mostrar un decimal
-    return `${distance.toFixed(1)}km`;
-  } else {
-    // Para distancias mayores, redondear a entero
-    return `${Math.round(distance)}km`;
-  }
 }
 
 /**
@@ -544,4 +597,122 @@ export function createReservation(placeId, userName, checkIn, checkOut) {
       discount: '10%' // Descuento aplicado
     }
   };
+}
+
+/**
+ * Obtiene detalles completos de un lugar específico de Google Places
+ * @param {string} placeId - ID del lugar de Google Places
+ * @returns {Promise<Object|null>} - Detalles del lugar o null si hay error
+ */
+export async function getPlaceDetails(placeId) {
+  if (!placeId) return null;
+  
+  const cacheKey = `place_details:${placeId}`;
+  
+  return cacheService.getCachedData(
+    cacheKey,
+    async () => {
+      try {
+        const API_KEY = config.externalApis.googleMapsApiKey;
+        if (!API_KEY) {
+          console.warn('Google Maps API key not configured');
+          return null;
+        }
+        
+        const fields = [
+          'formatted_phone_number',
+          'international_phone_number', 
+          'website',
+          'opening_hours',
+          'url',
+          'price_level',
+          'user_ratings_total'
+        ].join(',');
+        
+        const url = `https://maps.googleapis.com/maps/api/place/details/json?place_id=${placeId}&fields=${fields}&key=${API_KEY}`;
+        
+        console.log(`📞 Obteniendo detalles para lugar ID: ${placeId}`);
+        
+        const response = await axios.get(url);
+        
+        if (response.data.status === 'OK') {
+          const details = response.data.result;
+          return {
+            phone: details.formatted_phone_number || details.international_phone_number || null,
+            website: details.website || null,
+            opening_hours: details.opening_hours?.weekday_text || null,
+            google_url: details.url || null,
+            price_level: details.price_level || null,
+            user_ratings_total: details.user_ratings_total || null
+          };
+        } else {
+          console.warn(`Error obteniendo detalles: ${response.data.status}`);
+          return null;
+        }
+        
+      } catch (error) {
+        console.error(`Error obteniendo detalles del lugar ${placeId}:`, error.message);
+        return null;
+      }
+    },
+    86400, // Cache por 24 horas
+    'place_details'
+  );
+}
+
+/**
+ * Obtiene detalles completos para múltiples lugares de forma optimizada
+ * @param {Array} places - Array de lugares con place_id
+ * @param {number} maxPlaces - Máximo número de lugares a procesar (para optimizar costos)
+ * @returns {Promise<Array>} - Array de lugares con detalles completos
+ */
+export async function getPlacesWithDetails(places, maxPlaces = 6) {
+  if (!places || places.length === 0) return [];
+  
+  console.log(`📞 Obteniendo detalles para ${Math.min(places.length, maxPlaces)} lugares...`);
+  
+  // Limitar y priorizar por rating
+  const limitedPlaces = places
+    .sort((a, b) => (b.rating || 0) - (a.rating || 0))
+    .slice(0, maxPlaces);
+  
+  const placesWithDetails = await Promise.allSettled(
+    limitedPlaces.map(async (place) => {
+      if (!place.place_id) {
+        console.warn(`Lugar sin place_id: ${place.name}`);
+        return place;
+      }
+      
+      try {
+        const details = await getPlaceDetails(place.place_id);
+        
+        if (details) {
+          return {
+            ...place,
+            phone: details.phone,
+            website: details.website,
+            opening_hours: details.opening_hours,
+            google_url: details.google_url,
+            price_level: details.price_level,
+            user_ratings_total: details.user_ratings_total
+          };
+        } else {
+          return place;
+        }
+        
+      } catch (error) {
+        console.error(`Error procesando detalles para ${place.name}:`, error.message);
+        return place;
+      }
+    })
+  );
+  
+  // Extraer solo los valores resueltos exitosamente
+  const successfulResults = placesWithDetails
+    .filter(result => result.status === 'fulfilled')
+    .map(result => result.value);
+  
+  console.log(`✅ Detalles obtenidos para ${successfulResults.length} lugares`);
+  
+  return successfulResults;
 }

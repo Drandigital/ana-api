@@ -27,12 +27,18 @@ export async function searchFlights(
   origin, 
   destination, 
   departureDate, 
+  returnDate = null,
   adults = 1, 
   currency = 'USD', 
   maxResults = 10
 ) {
+  // Validate and normalize parameters
+  const normalizedAdults = parseInt(adults) || 1;
+  const normalizedCurrency = currency === 'USD' || currency === 'EUR' || currency === 'COP' ? currency : 'USD';
+  const normalizedMaxResults = parseInt(maxResults) || 10;
+  
   // Generate cache key
-  const cacheKey = `flight:${origin}:${destination}:${departureDate}:${adults}:${currency}`;
+  const cacheKey = `flight:${origin}:${destination}:${departureDate}:${returnDate}:${normalizedAdults}:${normalizedCurrency}`;
   
   // Check cache first
   if (flightCache.has(cacheKey)) {
@@ -47,26 +53,37 @@ export async function searchFlights(
   }
 
   try {
-    console.log(`Searching flights from ${origin} to ${destination} on ${departureDate}`);
+    console.log(`Searching flights from ${origin} to ${destination} on ${departureDate} (adults: ${normalizedAdults}, currency: ${normalizedCurrency})`);
     
-    // Call Amadeus API
-    const response = await amadeus.shopping.flightOffersSearch.get({
+    // Prepare API parameters
+    const searchParams = {
       originLocationCode: origin,
       destinationLocationCode: destination,
       departureDate,
-      adults,
-      currencyCode: currency,
-      max: maxResults
-    });
+      adults: normalizedAdults,
+      currencyCode: normalizedCurrency,
+      max: normalizedMaxResults
+    };
+    
+    // Add return date if provided (round trip)
+    if (returnDate) {
+      searchParams.returnDate = returnDate;
+    }
+    
+    // Call Amadeus API
+    const response = await amadeus.shopping.flightOffersSearch.get(searchParams);
 
-    // Cache the results
-    const flightOffers = response.data;
+    // Process and format the results
+    const processedFlights = processFlightOffers(response.data);
+    
+    // Cache the processed results
     flightCache.set(cacheKey, {
-      data: flightOffers,
+      data: processedFlights,
       expiry: Date.now() + (config.cache.flightsTtl * 1000)
     });
 
-    return flightOffers;
+    console.log(`✅ Found ${processedFlights.length} flights and cached results`);
+    return processedFlights;
   } catch (error) {
     console.error('Error searching flights with Amadeus:', error);
     
@@ -145,4 +162,57 @@ function getNextThreeMonths() {
   }
   
   return months;
+}
+
+/**
+ * Processes and formats flight offers for frontend consumption
+ * @param {Array} flightOffers - Raw flight offers from Amadeus API
+ * @returns {Array} - Formatted flight data
+ */
+export function processFlightOffers(flightOffers) {
+  if (!flightOffers || flightOffers.length === 0) {
+    return [];
+  }
+  
+  return flightOffers.map(offer => {
+    try {
+      const firstItinerary = offer.itineraries?.[0];
+      const firstSegment = firstItinerary?.segments?.[0];
+      const lastSegment = firstItinerary?.segments?.[firstItinerary.segments.length - 1];
+      
+      return {
+        id: offer.id,
+        price: offer.price?.total || 'N/A',
+        currency: offer.price?.currency || 'USD',
+        airline: firstSegment?.carrierCode || 'Unknown',
+        flightNumber: firstSegment?.number || 'N/A',
+        duration: firstItinerary?.duration || 'N/A',
+        departure: {
+          airport: firstSegment?.departure?.iataCode || 'N/A',
+          time: firstSegment?.departure?.at || 'N/A',
+          terminal: firstSegment?.departure?.terminal || null
+        },
+        arrival: {
+          airport: lastSegment?.arrival?.iataCode || 'N/A',
+          time: lastSegment?.arrival?.at || 'N/A',
+          terminal: lastSegment?.arrival?.terminal || null
+        },
+        stops: firstItinerary?.segments?.length > 1 ? firstItinerary.segments.length - 1 : 0,
+        bookingClass: firstSegment?.cabin || 'ECONOMY',
+        baggageAllowance: firstSegment?.pricingDetailPerAdult?.travelClass || null,
+        isRefundable: offer.pricingOptions?.refundableFare || false,
+        lastTicketingDate: offer.lastTicketingDate || null,
+        source: 'amadeus'
+      };
+    } catch (error) {
+      console.error('Error processing flight offer:', error);
+      return {
+        id: offer.id || 'unknown',
+        price: 'N/A',
+        currency: 'USD',
+        airline: 'Unknown',
+        error: 'Error processing flight data'
+      };
+    }
+  });
 }

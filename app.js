@@ -1,11 +1,20 @@
 // app.js (ES Modules)
 import express from 'express';
 import cors from 'cors';
-import { handleChatRequest } from './controllers/chatController.js';
+import { 
+  handleChatRequest, 
+  getConversationState, 
+  resetConversation, 
+  getConversationStats 
+} from './controllers/chatController.js';
 import { errorHandler, notFoundHandler, asyncHandler } from './middleware/errorHandler.js';
 import { requestLogger, errorLogger } from './middleware/logger.js';
 import config from './config/index.js';
 import { transcribeAudio, upload, fallbackTranscription } from './controllers/transcriptionController.js';
+// Importar el controlador de geolocalización
+import { handleProximityQuery } from './controllers/geolocationController.js';
+// Importar el controlador de reportes
+import { getReportsStats } from './controllers/reportController.js';
 
 const app = express();
 
@@ -48,11 +57,66 @@ app.post('/api', (req, res) => {
   handleChatRequest(req, res);
 });
 
+// Endpoint /api/chat para compatibilidad con algunos frontends
+app.post('/api/chat', (req, res) => {
+  handleChatRequest(req, res);
+});
+
+// Endpoint /chat también para compatibilidad
+app.post('/chat', (req, res) => {
+  handleChatRequest(req, res);
+});
+
 // New transcription endpoint
 app.post('/api/transcribe', upload.single('audio'), transcribeAudio);
 
 // Fallback transcription endpoint (simpler with fewer dependencies)
 app.post('/api/transcribe-fallback', fallbackTranscription);
+
+// Nuevo endpoint específico para búsquedas georreferenciadas
+app.post('/api/nearby', asyncHandler(async (req, res) => {
+  const { location, placeType = 'restaurant', language = 'es', radius } = req.body;
+  
+  if (!location) {
+    return res.status(400).json({
+      success: false,
+      error: language === 'es' 
+        ? 'Se requiere la ubicación para búsquedas cercanas'
+        : 'Location is required for nearby searches'
+    });
+  }
+  
+  console.log('🎯 Endpoint de búsqueda cercana:', { location, placeType, language, radius });
+  
+  // Simular análisis de consulta para el controlador
+  const mockQueryAnalysis = {
+    businessCategory: placeType,
+    city: null,
+    intents: ['location']
+  };
+  
+  const result = await handleProximityQuery(
+    `${placeType} cerca de mí`, // Mensaje simulado
+    location,
+    language,
+    mockQueryAnalysis
+  );
+  
+  if (result.success) {
+    return res.status(200).json({
+      success: true,
+      places: result.places,
+      searchParams: result.searchParams,
+      message: result.responseText
+    });
+  } else {
+    return res.status(400).json({
+      success: false,
+      error: result.error,
+      requiresLocation: result.requiresLocation || false
+    });
+  }
+}));
 
 // API health check route
 app.get('/health', (req, res) => {
@@ -64,21 +128,38 @@ app.get('/health', (req, res) => {
   });
 });
 
+// Endpoint para estadísticas de reportes
+app.get('/api/reports/stats', asyncHandler(async (req, res) => {
+  const stats = getReportsStats();
+  
+  res.status(200).json({
+    success: true,
+    stats: stats,
+    message: 'Estadísticas de reportes obtenidas exitosamente'
+  });
+}));
+
+// Nuevos endpoints para la arquitectura conversacional
+app.get('/api/conversation/:sessionId/state', getConversationState);
+app.delete('/api/conversation/:sessionId', resetConversation);
+app.get('/api/conversation/stats', getConversationStats);
+
 // API documentation route
 app.get('/api-docs', (req, res) => {
   res.status(200).json({
     name: 'Ana-IA Tourism API',
-    description: 'Tourism chatbot API for Colombia',
-    version: '1.1.0',
+    description: 'Tourism chatbot API for Colombia with enhanced geolocation features',
+    version: '1.2.0',
     endpoints: [
       {
         path: '/chat',
         method: 'POST',
-        description: 'Send a message to the chatbot',
+        description: 'Send a message to the chatbot with enhanced location support',
         parameters: {
           message: 'User message (required)',
           sessionId: 'Unique session identifier (optional)',
-          language: 'Preferred language: en/es (optional)'
+          language: 'Preferred language: en/es (optional)',
+          location: 'User coordinates {lat, lng} for location-based searches (optional)'
         }
       },
       {
@@ -111,9 +192,59 @@ app.get('/api-docs', (req, res) => {
         }
       },
       {
+        path: '/api/nearby',
+        method: 'POST',
+        description: 'Find places near user location (optimized for proximity searches)',
+        parameters: {
+          location: 'User coordinates {lat, lng} (required)',
+          placeType: 'Type of place: hotel, restaurant, bar, museum, attraction, etc. (optional, default: restaurant)',
+          language: 'Response language: en/es (optional, default: es)',
+          radius: 'Search radius in meters (optional, uses intelligent radius based on place type)'
+        }
+      },
+      {
         path: '/health',
         method: 'GET',
         description: 'Check API health status'
+      },
+      {
+        path: '/api/reports/stats',
+        method: 'GET',
+        description: 'Get tourism incident reports statistics',
+        response: {
+          total: 'Total number of reports',
+          withConsent: 'Reports with consent to send to authorities',
+          cities: 'Number of different cities with reports',
+          languages: 'Number of different languages used',
+          recentReports: 'Last 5 reports (anonymized)'
+        }
+      },
+      {
+        path: '/api/conversation/:sessionId/state',
+        method: 'GET',
+        description: 'Get the current state of the conversation for a session',
+        parameters: {
+          sessionId: 'Unique session identifier (required)'
+        }
+      },
+      {
+        path: '/api/conversation/:sessionId',
+        method: 'DELETE',
+        description: 'Reset the conversation for a session',
+        parameters: {
+          sessionId: 'Unique session identifier (required)'
+        }
+      },
+      {
+        path: '/api/conversation/stats',
+        method: 'GET',
+        description: 'Get statistics about conversations',
+        response: {
+          totalConversations: 'Total number of conversations',
+          activeConversations: 'Number of active conversations',
+          completedConversations: 'Number of completed conversations',
+          abandonedConversations: 'Number of abandoned conversations'
+        }
       }
     ]
   });

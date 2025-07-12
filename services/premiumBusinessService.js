@@ -1,6 +1,7 @@
 // services/premiumBusinessService.js
 
 import config from '../config/index.js';
+import geolocationService from './geolocationService.js';
 
 /**
  * Servicio para gestionar negocios premium y aliados
@@ -232,113 +233,177 @@ const premiumBusinessesDB = {
 };
 
 /**
- * Encuentra negocios premium y aliados por categoría y ubicación con soporte mejorado para geolocalización
+ * Encuentra negocios premium y aliados por categoría y ubicación con soporte optimizado para geolocalización
  * @param {string} category - Categoría de negocio (hotel, restaurant, etc.)
  * @param {string} city - Ciudad donde buscar
  * @param {Object} userLocation - Coordenadas del usuario {lat, lng}
  * @param {number} limit - Límite de resultados
+ * @param {number} maxDistance - Distancia máxima en km (opcional)
  * @returns {Array} - Lista de negocios ordenados por prioridad y distancia
  */
-export function findPremiumBusinesses(category, city, userLocation, limit = 10) {
-  // Normalizar categoría y ciudad para búsqueda
+export function findPremiumBusinesses(category, city, userLocation, limit = 10, maxDistance = null) {
+  // Normalizar y validar entrada
   const normalizedCategory = normalizeCategory(category);
   const normalizedCity = city ? city.toLowerCase() : null;
   
-  console.log(`Buscando negocios premium en categoría: ${normalizedCategory}, ciudad: ${normalizedCity}`);
+  console.log(`🔍 Buscando negocios premium: categoría=${normalizedCategory}, ciudad=${normalizedCity}`);
   
-  // Si no tenemos la categoría o la ciudad es inválida, devolver array vacío
+  // Validar ubicación del usuario
+  const validatedLocation = geolocationService.validateAndNormalizeUserLocation(userLocation);
+  
+  // Si no tenemos la categoría, devolver array vacío
   if (!normalizedCategory) {
+    console.log('❌ Categoría no válida');
     return [];
   }
   
   // Verificar si la categoría existe en nuestra base de datos
   if (!premiumBusinessesDB[normalizedCategory]) {
-    console.log(`Categoría ${normalizedCategory} no encontrada en base de datos`);
+    console.log(`❌ Categoría ${normalizedCategory} no encontrada en base de datos`);
     return [];
   }
   
-  // Recolectar negocios en la categoría y ciudad específicas
+  // Si tenemos ubicación del usuario pero no ciudad, determinar la ciudad más cercana
+  let targetCity = normalizedCity;
+  if (!targetCity && validatedLocation) {
+    targetCity = geolocationService.getNearestCity(validatedLocation.lat, validatedLocation.lng);
+    if (targetCity) {
+      targetCity = targetCity.toLowerCase();
+      console.log(`📍 Ciudad determinada por ubicación: ${targetCity}`);
+    }
+  }
+  
+  // Recolectar negocios
   let businesses = [];
   
-  // Si se especificó una ciudad, buscar solo en esa ciudad
-  if (normalizedCity && premiumBusinessesDB[normalizedCategory][normalizedCity]) {
-    businesses = [...premiumBusinessesDB[normalizedCategory][normalizedCity]];
-    console.log(`Encontrados ${businesses.length} negocios en ${normalizedCity} para categoría ${normalizedCategory}`);
-  } 
-  // Si se especificó una ciudad pero no hay negocios para esa categoría en esa ciudad
-  else if (normalizedCity) {
-    console.log(`No se encontraron negocios premium para ${normalizedCategory} en ${normalizedCity}`);
-    return []; // Retornar array vacío en lugar de buscar en todas las ciudades
-  }
-  // Si no se especificó ciudad, buscar en todas las ciudades
-  else {
+  if (targetCity && premiumBusinessesDB[normalizedCategory][targetCity]) {
+    // Buscar en la ciudad específica
+    businesses = [...premiumBusinessesDB[normalizedCategory][targetCity]];
+    console.log(`✅ Encontrados ${businesses.length} negocios en ${targetCity} para categoría ${normalizedCategory}`);
+    
+    // Si tenemos ubicación del usuario y pocos resultados locales, expandir búsqueda
+    if (validatedLocation && businesses.length < 3) {
+      console.log('📈 Expandiendo búsqueda a ciudades cercanas...');
+      Object.entries(premiumBusinessesDB[normalizedCategory]).forEach(([cityKey, cityBusinesses]) => {
+        if (cityKey !== targetCity) {
+          // Verificar si algún negocio está dentro del radio de búsqueda
+          const nearbyBusinesses = cityBusinesses.filter(business => {
+            if (!business.location) return false;
+            const distance = geolocationService.calculateDistance(
+              validatedLocation.lat,
+              validatedLocation.lng,
+              business.location.lat,
+              business.location.lng
+            );
+            return distance !== null && distance <= (maxDistance || 50); // 50km por defecto
+          });
+          businesses = [...businesses, ...nearbyBusinesses];
+        }
+      });
+      console.log(`📍 Total después de expansión: ${businesses.length} negocios`);
+    }
+  } else if (targetCity) {
+    console.log(`❌ No se encontraron negocios premium para ${normalizedCategory} en ${targetCity}`);
+    
+    // Si tenemos ubicación del usuario, buscar en todas las ciudades cercanas
+    if (validatedLocation) {
+      console.log('🌐 Buscando en todas las ciudades por proximidad...');
+      Object.values(premiumBusinessesDB[normalizedCategory]).forEach(cityBusinesses => {
+        const nearbyBusinesses = cityBusinesses.filter(business => {
+          if (!business.location) return false;
+          const distance = geolocationService.calculateDistance(
+            validatedLocation.lat,
+            validatedLocation.lng,
+            business.location.lat,
+            business.location.lng
+          );
+          return distance !== null && distance <= (maxDistance || 30); // 30km por defecto
+        });
+        businesses = [...businesses, ...nearbyBusinesses];
+      });
+      console.log(`🎯 Encontrados ${businesses.length} negocios por proximidad`);
+    } else {
+      return []; // Sin ubicación y sin ciudad válida, no hay resultados
+    }
+  } else {
+    // Sin ciudad específica, buscar en todas las ciudades
+    console.log('🌍 Buscando en todas las ciudades...');
     Object.values(premiumBusinessesDB[normalizedCategory]).forEach(cityBusinesses => {
       businesses = [...businesses, ...cityBusinesses];
     });
-    console.log(`Encontrados ${businesses.length} negocios en todas las ciudades para categoría ${normalizedCategory}`);
+    console.log(`📊 Total encontrados: ${businesses.length} negocios`);
   }
   
   // Si no hay negocios, retornar array vacío
   if (businesses.length === 0) {
+    console.log('❌ No se encontraron negocios');
     return [];
   }
   
-  // Verificar si tenemos una ubicación de usuario válida para calcular distancias
-  const hasValidLocation = userLocation && 
-                           typeof userLocation.lat !== 'undefined' && 
-                           typeof userLocation.lng !== 'undefined' &&
-                           !isNaN(userLocation.lat) && 
-                           !isNaN(userLocation.lng);
-  
-  // Si hay ubicación del usuario, calcular distancias
-  if (hasValidLocation) {
-    console.log(`Calculando distancias desde: ${userLocation.lat}, ${userLocation.lng}`);
+  // Procesar con geolocalización si tenemos ubicación válida
+  if (validatedLocation) {
+    console.log(`📏 Calculando distancias desde: ${validatedLocation.lat}, ${validatedLocation.lng}`);
+    
     businesses = businesses.map(business => {
-      const distance = calculateDistance(
-        userLocation.lat, 
-        userLocation.lng,
+      if (!business.location) {
+        return {
+          ...business,
+          distance: Infinity,
+          distance_text: 'Sin ubicación'
+        };
+      }
+      
+      const distance = geolocationService.calculateDistance(
+        validatedLocation.lat,
+        validatedLocation.lng,
         business.location.lat,
         business.location.lng
       );
       
       return {
         ...business,
-        distance: distance,
-        distance_text: formatDistance(distance)
+        distance: distance || Infinity,
+        distance_text: geolocationService.formatDistance(distance, 'es')
       };
     });
-  }
-  
-  // Ordenar basado en la ubicación del usuario si está disponible
-  if (hasValidLocation) {
-    // Si tenemos la ubicación del usuario, primero separar por categoría de prioridad
-    // y luego ordenar cada grupo por distancia
-    const premiumBusinesses = businesses.filter(b => b.priority === 1);
-    const alliedBusinesses = businesses.filter(b => b.priority === 2);
-    const normalBusinesses = businesses.filter(b => b.priority > 2);
     
-    // Ordenar cada grupo por distancia
-    premiumBusinesses.sort((a, b) => a.distance - b.distance);
-    alliedBusinesses.sort((a, b) => a.distance - b.distance);
-    normalBusinesses.sort((a, b) => a.distance - b.distance);
+    // Filtrar por distancia máxima si se especifica
+    if (maxDistance) {
+      businesses = businesses.filter(business => 
+        business.distance === Infinity || business.distance <= maxDistance
+      );
+      console.log(`🎯 Filtrados por distancia máxima (${maxDistance}km): ${businesses.length} negocios`);
+    }
     
-    // Combinar los grupos nuevamente
-    businesses = [...premiumBusinesses, ...alliedBusinesses, ...normalBusinesses];
-    
-    console.log(`Negocios ordenados por distancia dentro de cada categoría de prioridad`);
-  } else {
-    // Ordenación original: primero por prioridad, luego por calificación
-    businesses.sort((a, b) => {
+    // Ordenar por prioridad y luego por distancia
+    businesses = businesses.sort((a, b) => {
+      // Primero por prioridad (premium, aliado, normal)
       if (a.priority !== b.priority) {
         return a.priority - b.priority;
       }
       
-      return b.rating - a.rating; // Si no hay distancia, ordenar por calificación
+      // Luego por distancia
+      return (a.distance || Infinity) - (b.distance || Infinity);
     });
+    
+    console.log('✅ Negocios ordenados por prioridad y distancia');
+  } else {
+    // Ordenación sin geolocalización: por prioridad y calificación
+    businesses = businesses.sort((a, b) => {
+      if (a.priority !== b.priority) {
+        return a.priority - b.priority;
+      }
+      return (b.rating || 0) - (a.rating || 0);
+    });
+    
+    console.log('✅ Negocios ordenados por prioridad y calificación');
   }
   
-  // Aplicar límite si es necesario
-  return businesses.slice(0, limit);
+  // Aplicar límite
+  const result = businesses.slice(0, limit);
+  console.log(`📋 Retornando ${result.length} negocios (límite: ${limit})`);
+  
+  return result;
 }
 
 /**
@@ -395,7 +460,7 @@ export function getAvailableCategoriesForCity(city) {
  */
 export function trackBusinessImpression(businessId, sessionId) {
   // En producción, esto registraría en la base de datos
-  console.log(`Impresión registrada: Negocio ${businessId}, Sesión ${sessionId}`);
+  console.log(`📊 Impresión registrada: Negocio ${businessId}, Sesión ${sessionId}`);
   return true;
 }
 
@@ -407,8 +472,62 @@ export function trackBusinessImpression(businessId, sessionId) {
  */
 export function trackBusinessClick(businessId, sessionId) {
   // En producción, esto registraría en la base de datos
-  console.log(`Clic registrado: Negocio ${businessId}, Sesión ${sessionId}`);
+  console.log(`🖱️ Clic registrado: Negocio ${businessId}, Sesión ${sessionId}`);
   return true;
+}
+
+/**
+ * Busca negocios premium cercanos a una ubicación específica
+ * @param {Object} userLocation - Coordenadas del usuario {lat, lng}
+ * @param {string} category - Categoría de negocio (opcional)
+ * @param {number} radius - Radio de búsqueda en km
+ * @param {number} limit - Límite de resultados
+ * @returns {Array} - Lista de negocios cercanos
+ */
+export function findNearbyPremiumBusinesses(userLocation, category = null, radius = 5, limit = 10) {
+  const validatedLocation = geolocationService.validateAndNormalizeUserLocation(userLocation);
+  
+  if (!validatedLocation) {
+    console.log('❌ Ubicación del usuario no válida para búsqueda cercana');
+    return [];
+  }
+  
+  console.log(`🎯 Buscando negocios cercanos a ${validatedLocation.lat}, ${validatedLocation.lng} dentro de ${radius}km`);
+  
+  let allBusinesses = [];
+  
+  // Determinar qué categorías buscar
+  const categoriesToSearch = category ? [normalizeCategory(category)] : Object.keys(premiumBusinessesDB);
+  
+  // Recopilar negocios de todas las categorías relevantes
+  categoriesToSearch.forEach(cat => {
+    if (cat && premiumBusinessesDB[cat]) {
+      Object.values(premiumBusinessesDB[cat]).forEach(cityBusinesses => {
+        allBusinesses = [...allBusinesses, ...cityBusinesses.map(business => ({
+          ...business,
+          category: cat
+        }))];
+      });
+    }
+  });
+  
+  // Filtrar por proximidad usando el servicio de geolocalización
+  const nearbyBusinesses = geolocationService.getPlacesWithinRadius(
+    allBusinesses,
+    validatedLocation,
+    radius
+  );
+  
+  // Ordenar por prioridad y luego por distancia
+  nearbyBusinesses.sort((a, b) => {
+    if (a.priority !== b.priority) {
+      return a.priority - b.priority;
+    }
+    return (a.distance || Infinity) - (b.distance || Infinity);
+  });
+  
+  console.log(`✅ Encontrados ${nearbyBusinesses.length} negocios cercanos`);
+  return nearbyBusinesses.slice(0, limit);
 }
 
 /**
@@ -417,7 +536,10 @@ export function trackBusinessClick(businessId, sessionId) {
  * @returns {string} - Categoría normalizada
  */
 function normalizeCategory(category) {
-  if (!category) return null;
+  if (!category || typeof category !== 'string') {
+    console.log('⚠️ Categoría inválida:', category, typeof category);
+    return 'restaurant'; // Fallback por defecto
+  }
   
   const cat = category.toLowerCase().trim();
   
@@ -482,56 +604,4 @@ function normalizeCategory(category) {
   };
   
   return categoryMappings[cat] || null;
-}
-
-/**
- * Calcula la distancia entre dos puntos de coordenadas usando la fórmula de Haversine
- * @param {number} lat1 - Latitud del punto 1
- * @param {number} lon1 - Longitud del punto 1
- * @param {number} lat2 - Latitud del punto 2
- * @param {number} lon2 - Longitud del punto 2
- * @returns {number} - Distancia en kilómetros
- */
-function calculateDistance(lat1, lon1, lat2, lon2) {
-  const R = 6371; // Radio de la Tierra en km
-  const dLat = degreesToRadians(lat2 - lat1);
-  const dLon = degreesToRadians(lon2 - lon1);
-  
-  const a = 
-    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-    Math.cos(degreesToRadians(lat1)) * Math.cos(degreesToRadians(lat2)) * 
-    Math.sin(dLon / 2) * Math.sin(dLon / 2);
-  
-  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-  const distance = R * c; // Distancia en km
-  
-  return distance;
-}
-
-/**
- * Convierte grados a radianes
- * @param {number} degrees - Ángulo en grados
- * @returns {number} - Ángulo en radianes
- */
-function degreesToRadians(degrees) {
-  return degrees * (Math.PI / 180);
-}
-
-/**
- * Formatea una distancia para mostrar
- * @param {number} distance - Distancia en kilómetros
- * @returns {string} - Texto formateado de la distancia
- */
-function formatDistance(distance) {
-  if (distance === undefined || distance === null) {
-    return null;
-  }
-  
-  if (distance < 1) {
-    // Convertir a metros para distancias menores a 1km
-    return `${Math.round(distance * 1000)}m`;
-  } else {
-    // Formatear km con un decimal
-    return `${distance.toFixed(1)}km`;
-  }
 }

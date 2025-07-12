@@ -6,11 +6,19 @@
     "main": "app.js",
     "scripts": {
         "start": "node app.js",
-        "dev": "nodemon app.js"
+        "dev": "nodemon app.js",
+        "test": "mocha tests/**/*.test.js --timeout 30000 --reporter spec",
+        "test:conversation": "mocha tests/conversationFlow.test.js --timeout 30000 --reporter spec",
+        "test:phones": "node tests/test-phone-numbers.js",
+        "test:map": "node tests/test-urgent-map.js",
+        "test:weather": "node tests/test-weather-api.js",
+        "test:flights": "node tests/test-amadeus-api.js",
+        "test:flights-full": "node tests/test-flight-integration.js"
     },
     "dependencies": {
         "amadeus": "^11.0.0",
-        "axios": "^1.8.1",
+        "axios": "^1.10.0",
+        "chalk": "^5.4.1",
         "cors": "^2.8.5",
         "dotenv": "^16.4.7",
         "express": "^4.21.2",
@@ -23,6 +31,9 @@
         "serverless-http": "^3.2.0"
     },
     "devDependencies": {
-        "nodemon": "^3.1.9"
+        "chai": "^5.2.0",
+        "mocha": "^11.7.1",
+        "nodemon": "^3.1.9",
+        "supertest": "^7.1.3"
     }
 }

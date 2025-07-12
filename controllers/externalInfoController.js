@@ -9,7 +9,6 @@ import { conversationHistory } from './chatController.js';
  * Gathers information from external APIs based on user message
  * @param {string} originalMessage - Original user message
  * @param {string} lowerMessage - Lowercase user message for keyword detection
- * @param {string} language - Detected language code
  * @param {string} sessionId - Session ID for storing map places
  * @param {Object} userLocation - User's location coordinates
  * @param {Array} premiumBusinesses - Premium businesses already found
@@ -19,7 +18,6 @@ import { conversationHistory } from './chatController.js';
 export async function gatherExternalInfo(
   originalMessage, 
   lowerMessage, 
-  language, 
   sessionId, 
   userLocation,
   premiumBusinesses,
@@ -29,7 +27,7 @@ export async function gatherExternalInfo(
 
   // Weather information - expand keywords to catch more weather queries
   if (queryAnalysis.intents.includes('weather')) {
-    const weatherInfo = await getWeatherInformation(originalMessage, lowerMessage, language, queryAnalysis.city);
+    const weatherInfo = await getWeatherInformation(originalMessage, lowerMessage, queryAnalysis.city);
     if (weatherInfo) {
       externalInfo += weatherInfo + '\n\n';
     }
@@ -37,7 +35,7 @@ export async function gatherExternalInfo(
 
   // Flight information
   if (queryAnalysis.intents.includes('flight')) {
-    const flightInfo = await getFlightInformation(lowerMessage, language);
+    const flightInfo = await getFlightInformation(lowerMessage);
     if (flightInfo) {
       externalInfo += flightInfo + '\n\n';
     }
@@ -49,7 +47,7 @@ export async function gatherExternalInfo(
        queryAnalysis.intents.includes('location'))) {
     const placesInfo = await getPlacesInformation(
       lowerMessage, 
-      language, 
+      'es', // Usar idioma por defecto - OpenAI manejará la respuesta en el idioma correcto
       sessionId, 
       userLocation, 
       queryAnalysis.city,
@@ -67,11 +65,10 @@ export async function gatherExternalInfo(
  * Gets weather information for the detected city
  * @param {string} originalMessage - Original user message
  * @param {string} lowerMessage - Lowercase user message
- * @param {string} language - Detected language code
  * @param {string} detectedCity - City detected from query analysis
  * @returns {Promise<string>} - Formatted weather information
  */
-async function getWeatherInformation(originalMessage, lowerMessage, language, detectedCity) {
+async function getWeatherInformation(originalMessage, lowerMessage, detectedCity) {
   // List of Colombian cities to detect
   const cities = [
     'cartagena', 'bogota', 'bogotá', 'medellin', 'medellín', 'cali', 
@@ -111,10 +108,8 @@ async function getWeatherInformation(originalMessage, lowerMessage, language, de
       cityDetected = 'Cartagena';
       console.log("No city detected, defaulting to Cartagena");
     } else {
-      // For other weather-related queries, don't default to any city
-      return language === 'en'
-        ? "No specific city was mentioned in your query. Please specify a Colombian city to get weather information."
-        : "No se mencionó ninguna ciudad específica en tu consulta. Por favor, especifica una ciudad colombiana para obtener información del clima.";
+      // For other weather-related queries, let OpenAI handle the response naturally
+      return "No specific city was mentioned in your query. Please specify a Colombian city to get weather information. / No se mencionó ninguna ciudad específica en tu consulta. Por favor, especifica una ciudad colombiana para obtener información del clima.";
     }
   }
 
@@ -124,34 +119,25 @@ async function getWeatherInformation(originalMessage, lowerMessage, language, de
     
     if (!weather) {
       console.log(`No weather data returned for ${cityDetected}`);
-      return language === 'en'
-        ? `I couldn't retrieve current weather information for ${cityDetected}.`
-        : `No pude obtener la información del clima actual para ${cityDetected}.`;
+      return `I couldn't retrieve current weather information for ${cityDetected}. / No pude obtener la información del clima actual para ${cityDetected}.`;
     }
     
     console.log("Weather data received:", weather);
     
-    // Format the weather information
-    if (language === 'en') {
-      return `Current weather in ${cityDetected}: Temperature is ${weather.temperature}°C with ${weather.description}. Wind speed: ${weather.wind} m/s. Humidity: ${weather.humidity}%.`;
-    } else {
-      return `El clima actual en ${cityDetected}: Temperatura de ${weather.temperature}°C con ${weather.description}. Velocidad del viento: ${weather.wind} m/s. Humedad: ${weather.humidity}%.`;
-    }
+    // Format the weather information in a universal way - OpenAI will translate
+    return `Current weather in ${cityDetected}: Temperature is ${weather.temperature}°C with ${weather.description}. Wind speed: ${weather.wind} m/s. Humidity: ${weather.humidity}%. / El clima actual en ${cityDetected}: Temperatura de ${weather.temperature}°C con ${weather.description}. Velocidad del viento: ${weather.wind} m/s. Humedad: ${weather.humidity}%.`;
   } catch (error) {
     console.error('Error getting weather data:', error);
-    return language === 'en'
-      ? `I encountered an error while trying to get the current weather information for ${cityDetected}.`
-      : `Encontré un error al intentar obtener la información del clima actual para ${cityDetected}.`;
+    return `I encountered an error while trying to get the current weather information for ${cityDetected}. / Encontré un error al intentar obtener la información del clima actual para ${cityDetected}.`;
   }
 }
 
 /**
- * Gets flight information based on the user message
+ * Gets flight information based on the user message  
  * @param {string} lowerMessage - Lowercase user message
- * @param {string} language - Detected language code
  * @returns {Promise<string>} - Formatted flight information
  */
-async function getFlightInformation(lowerMessage, language) {
+async function getFlightInformation(lowerMessage) {
   // Detect cities mentioned in the message
   let citiesFound = [];
   for (const city in authorizedCities) {
@@ -162,9 +148,7 @@ async function getFlightInformation(lowerMessage, language) {
 
   // Need at least two cities (origin and destination)
   if (citiesFound.length < 2) {
-    return language === 'en'
-      ? 'Please specify both origin and destination cities for flight information.'
-      : 'Por favor indique tanto la ciudad de origen como la de destino para información de vuelos.';
+    return 'Please specify both origin and destination cities for flight information. / Por favor indique tanto la ciudad de origen como la de destino para información de vuelos.';
   }
 
   // Assume first two cities are origin and destination
@@ -176,9 +160,7 @@ async function getFlightInformation(lowerMessage, language) {
   // Parse departure date from message
   const departureDate = parseUserDate(lowerMessage);
   if (!departureDate) {
-    return language === 'en'
-      ? `I couldn't detect a valid departure date. Please provide a date in format like "2025-01-10" or "January 10, 2025".`
-      : `No detecté una fecha de salida válida. Por favor proporciona una fecha como "10/01/2025" o "10 de enero de 2025".`;
+    return `I couldn't detect a valid departure date. Please provide a date in format like "2025-01-10" or "January 10, 2025". / No detecté una fecha de salida válida. Por favor proporciona una fecha como "10/01/2025" o "10 de enero de 2025".`;
   }
 
   // Airline name mapping
@@ -217,31 +199,23 @@ async function getFlightInformation(lowerMessage, language) {
         const arrivalTime = formatFlightDateTime(segments[segments.length - 1]?.arrival.at);
         const duration = formatFlightDuration(itinerary.duration);
 
-        flightDetails += language === 'en'
-          ? `\n${index + 1}. ${airlineFullName}: ${price} ${currency}, Departure: ${departureTime}, Arrival: ${arrivalTime}, Duration: ${duration}`
-          : `\n${index + 1}. ${airlineFullName}: ${price} ${currency}, Salida: ${departureTime}, Llegada: ${arrivalTime}, Duración: ${duration}`;
+        flightDetails += `\n${index + 1}. ${airlineFullName}: ${price} ${currency}, Departure/Salida: ${departureTime}, Arrival/Llegada: ${arrivalTime}, Duration/Duración: ${duration}`;
       });
 
-      return language === 'en'
-        ? `Flights from ${originCity} to ${destinationCity} on ${formatDisplayDate(departureDate, language)}:${flightDetails}`
-        : `Vuelos desde ${originCity} hacia ${destinationCity} el ${formatDisplayDate(departureDate, language)}:${flightDetails}`;
+      return `Flights from ${originCity} to ${destinationCity} / Vuelos desde ${originCity} hacia ${destinationCity} on ${formatDisplayDate(departureDate)}:${flightDetails}`;
     } else {
-      return language === 'en'
-        ? `No flights found from ${originCity} to ${destinationCity} on ${formatDisplayDate(departureDate, language)}.`
-        : `No se encontraron vuelos desde ${originCity} hacia ${destinationCity} el ${formatDisplayDate(departureDate, language)}.`;
+      return `No flights found from ${originCity} to ${destinationCity} / No se encontraron vuelos desde ${originCity} hacia ${destinationCity} on ${formatDisplayDate(departureDate)}.`;
     }
   } catch (error) {
     console.error('Error searching flights:', error);
-    return language === 'en'
-      ? 'Sorry, I encountered an issue while searching for flights. Please try again later.'
-      : 'Lo siento, encontré un problema al buscar vuelos. Por favor intenta de nuevo más tarde.';
+    return 'Sorry, I encountered an issue while searching for flights. Please try again later. / Lo siento, encontré un problema al buscar vuelos. Por favor intenta de nuevo más tarde.';
   }
 }
 
 /**
  * Gets places information from Google Places API with enhanced geolocation support
  * @param {string} lowerMessage - Lowercase user message for keyword detection
- * @param {string} language - Detected language code
+ * @param {string} language - Language code (kept for API compatibility)
  * @param {string} sessionId - Session ID for storing map places
  * @param {Object} userLocation - User's location coordinates
  * @param {string} city - Detected city
@@ -250,7 +224,7 @@ async function getFlightInformation(lowerMessage, language) {
  */
 async function getPlacesInformation(
   lowerMessage, 
-  language, 
+  language = 'en', 
   sessionId, 
   userLocation,
   city,
@@ -297,7 +271,7 @@ async function getPlacesInformation(
     console.log(`Searching for ${placeType} in ${cityForPlaces}${hasValidLocation ? ' with user location' : ''}`);
     
     // Get places from Google Maps API - pass user location if available
-    const places = await getPlacesFromGoogleMaps(cityForPlaces, placeType, language, userLocation);
+    const places = await getPlacesFromGoogleMaps(cityForPlaces, placeType, 'es', userLocation);
 
     let topPlacesText = '';
     let mapPlaces = [];
@@ -308,26 +282,21 @@ async function getPlacesInformation(
       // Format top 4 places with distance information if available
       topPlacesText = places.slice(0, 4)
         .map((place, idx) => {
-          const name = place.name || (language === 'en' ? 'No name' : 'Sin nombre');
-          const address = place.formatted_address || (language === 'en' ? 'Address not available' : 'Dirección no disponible');
-          const rating = place.rating ? `${place.rating}/5` : (language === 'en' ? 'No rating' : 'Sin calificación');
+          const name = place.name || 'No name';
+          const address = place.formatted_address || 'Address not available';
+          const rating = place.rating ? `${place.rating}/5` : 'No rating';
           
           // Include distance if available
-          const distanceText = place.distance_text ? 
-            (language === 'en' ? `, ${place.distance_text} away` : `, a ${place.distance_text}`) : 
-            '';
+          const distanceText = place.distance_text ? `, ${place.distance_text} away` : '';
           
-          // Format based on language
-          return language === 'en' ?
-            `${idx + 1}. ${name} - ${rating}${distanceText} (${address})` :
-            `${idx + 1}. ${name} - ${rating}${distanceText} (${address})`;
+          return `${idx + 1}. ${name} - ${rating}${distanceText} (${address})`;
         })
         .join('\n');
 
       // Prepare map places for frontend with enhanced location data
       mapPlaces = places.slice(0, 4).map(place => ({
-        name: place.name || (language === 'en' ? 'No name' : 'Sin nombre'),
-        address: place.formatted_address || (language === 'en' ? 'Address not available' : 'Dirección no disponible'),
+        name: place.name || 'No name',
+        address: place.formatted_address || 'Address not available',
         rating: place.rating || 0,
         location: {
           lat: place.geometry?.location?.lat,
@@ -349,24 +318,16 @@ async function getPlacesInformation(
 
       // Prepare the intro text based on search type (location-based or city-based)
       const introText = hasValidLocation ?
-        (language === 'en' ? 
-          `Nearby ${placeType}s in ${cityForPlaces} (sorted by proximity to user's location):` : 
-          `${placeType}s cercanos en ${cityForPlaces} (ordenados por proximidad a la ubicación del usuario):`) :
-        (language === 'en' ? 
-          `Popular ${placeType}s in ${cityForPlaces}:` : 
-          `${placeType}s populares en ${cityForPlaces}:`);
+        `Nearby ${placeType}s in ${cityForPlaces} (sorted by proximity to user's location):` : 
+        `Popular ${placeType}s in ${cityForPlaces}:`;
 
       return `${introText}\n${topPlacesText}`;
     } else {
-      return language === 'en'
-        ? `No ${placeType}s found ${hasValidLocation ? 'near your location' : ''} in ${cityForPlaces}.`
-        : `No se encontraron ${placeType}s ${hasValidLocation ? 'cerca de tu ubicación' : ''} en ${cityForPlaces}.`;
+      return `No ${placeType}s found ${hasValidLocation ? 'near your location' : ''} in ${cityForPlaces}.`;
     }
   } catch (error) {
     console.error('Error fetching places:', error);
-    return language === 'en'
-      ? `I couldn't retrieve ${placeType} information ${hasValidLocation ? 'near your location' : ''} for ${cityForPlaces} at this time.`
-      : `No pude obtener información de ${placeType}s ${hasValidLocation ? 'cerca de tu ubicación' : ''} para ${cityForPlaces} en este momento.`;
+    return `I couldn't retrieve ${placeType} information ${hasValidLocation ? 'near your location' : ''} for ${cityForPlaces} at this time.`;
   }
 }
 
@@ -411,13 +372,11 @@ function formatFlightDuration(duration) {
 /**
  * Helper function to format display date
  * @param {string} dateString - ISO format date
- * @param {string} language - Language code
+ * @param {string} language - Language code (kept for compatibility)
  * @returns {string} - Formatted date string
  */
-function formatDisplayDate(dateString, language) {
+function formatDisplayDate(dateString, language = 'en') {
   const date = new Date(dateString);
   
-  return language === 'en'
-    ? date.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })
-    : date.toLocaleDateString('es-ES', { year: 'numeric', month: 'long', day: 'numeric' });
+  return date.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
 }

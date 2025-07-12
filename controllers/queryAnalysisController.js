@@ -4,86 +4,74 @@
  * Analyzes the user query to extract intents, categories, and locations
  * @param {string} originalMessage - Original user message
  * @param {string} lowerMessage - Lowercase user message
- * @param {string} language - Detected language
  * @returns {Object} - Analysis results with city, category, and intents
  */
-export function analyzeQuery(originalMessage, lowerMessage, language) {
+export function analyzeQuery(originalMessage, lowerMessage) {
     const result = {
       city: null,
       businessCategory: null,
-      intents: []
+      intents: [],
+      searchType: null, // 'proximity', 'city_specific', 'location_query', 'weather'
+      confidence: 0
     };
     
-    // Detect cities in the message
-    const colombianCities = [
-      'cartagena', 'bogota', 'bogotá', 'medellin', 'medellín', 'cali', 
-      'barranquilla', 'santa marta', 'bucaramanga', 'pereira', 'manizales', 
-      'cúcuta', 'cucuta', 'ibague', 'ibagué', 'villavicencio', 'armenia', 
-      'popayán', 'popayan', 'barrancabermeja', 'soacha'
-    ];
-    
-    for (const city of colombianCities) {
-      if (lowerMessage.includes(city)) {
-        result.city = city.charAt(0).toUpperCase() + city.slice(1);
-        break;
-      }
-    }
-    
-    // Detect business categories
-    const categoryKeywords = {
-      hotel: ['hotel', 'hostal', 'alojamiento', 'hospedaje', 'accommodation', 'lodging', 'dormir', 'sleep', 'hostel', 'hostales'],
-      restaurant: ['restaurante', 'comida', 'comer', 'restaurant', 'food', 'dining', 'almorzar', 'cenar', 'restaurantes', 'restaurants'],
-      bar: ['bar', 'bares', 'bebidas', 'drinks', 'nightlife', 'vida nocturna', 'pub', 'pubs', 'discoteca', 'discotecas'],
-      museum: ['museo', 'museum', 'exposición', 'exhibition', 'galería', 'gallery', 'arte', 'art', 'museos', 'museums'],
-      beach: ['playa', 'beach', 'costa', 'coast', 'mar', 'sea', 'playas', 'beaches', 'oceano', 'ocean'],
-      attraction: ['atracción', 'atracciones', 'atraccion', 'atracciones', 'attraction', 'attractions', 'lugar', 'lugares', 'place', 'places']
-    };
-    
-    for (const [category, keywords] of Object.entries(categoryKeywords)) {
-      for (const keyword of keywords) {
-        if (lowerMessage.includes(keyword)) {
-          result.businessCategory = category;
-          break;
-        }
-      }
-      if (result.businessCategory) break;
-    }
-    
-    // Detect location-specific requests (near me, closest, etc.)
-    const locationKeywords = {
-      en: ['near me', 'closest', 'nearby', 'walking distance', 'proximity', 'near my location', 'nearest'],
-      es: ['cerca', 'cercano', 'cercana', 'próximo', 'proxima', 'cerca de mí', 'cercanos', 'cercanas', 'a poca distancia']
-    };
-    
-    const relevantKeywords = language === 'en' ? 
-      [...locationKeywords.en] : 
-      [...locationKeywords.es];
-      
-    for (const keyword of relevantKeywords) {
-      if (lowerMessage.includes(keyword)) {
-        result.intents.push('location');
-        break;
-      }
-    }
-    
-    // Detect user intents
+    // Detect intents
     if (lowerMessage.includes('clima') || lowerMessage.includes('weather') || 
         lowerMessage.includes('temperatura') || lowerMessage.includes('temperature')) {
       result.intents.push('weather');
     }
     
     if (lowerMessage.includes('vuelo') || lowerMessage.includes('flight') || 
-        lowerMessage.includes('viaje') || lowerMessage.includes('travel') ||
-        lowerMessage.includes('avión') || lowerMessage.includes('avion') ||
-        lowerMessage.includes('plane')) {
+        lowerMessage.includes('boleto') || lowerMessage.includes('ticket')) {
       result.intents.push('flight');
     }
     
-    if (lowerMessage.includes('reserva') || lowerMessage.includes('booking') || 
-        lowerMessage.includes('reservar') || lowerMessage.includes('book') ||
-        lowerMessage.includes('reservation')) {
-      result.intents.push('booking');
+    // Detect simple city names (let OpenAI handle the rest)
+    const colombianCities = [
+      'cartagena', 'bogota', 'bogotá', 'medellin', 'medellín', 'cali',
+      'barranquilla', 'santa marta', 'bucaramanga', 'pereira', 'manizales',
+      'cucuta', 'cúcuta', 'armenia', 'ibague', 'villavicencio'
+    ];
+    
+    for (const city of colombianCities) {
+      if (lowerMessage.includes(city)) {
+        result.city = city.charAt(0).toUpperCase() + city.slice(1);
+        result.confidence += 0.3;
+        break;
+      }
+    }
+    
+    // Detect business categories
+    const categoryMappings = {
+      'hotel': ['hotel', 'hotels', 'hospedaje', 'alojamiento', 'hostal', 'posada'],
+      'restaurant': ['restaurante', 'restaurant', 'comida', 'comer', 'almorzar', 'cenar'],
+      'bar': ['bar', 'bars', 'discoteca', 'club', 'rumba', 'fiesta'],
+      'tourist_attraction': ['atraccion', 'atracción', 'turismo', 'visitar', 'conocer', 'lugar'],
+      'airport': ['aeropuerto', 'airport', 'vuelo', 'flight']
+    };
+    
+    for (const [category, keywords] of Object.entries(categoryMappings)) {
+      if (keywords.some(keyword => lowerMessage.includes(keyword))) {
+        result.businessCategory = category;
+        result.confidence += 0.4;
+        break;
+      }
+    }
+    
+    // Determine search type
+    if (lowerMessage.includes('cerca') || lowerMessage.includes('near') || 
+        lowerMessage.includes('around') || lowerMessage.includes('nearby')) {
+      result.searchType = 'proximity';
+      result.intents.push('location');
+    } else if (result.city) {
+      result.searchType = 'city_specific';
+    } else if (lowerMessage.includes('ubicación') || lowerMessage.includes('location') ||
+               lowerMessage.includes('donde estoy') || lowerMessage.includes('where am i')) {
+      result.searchType = 'location_query';
+      result.intents.push('location');
+    } else if (result.intents.includes('weather')) {
+      result.searchType = 'weather';
     }
     
     return result;
-  }
+}
